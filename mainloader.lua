@@ -4,22 +4,22 @@
 -- This is the ONE script/loadstring users execute.
 -- Current hosted mainloader reference supplied by user: https://pastebin.com/raw/jDFLeUSy
 
-local LIBRARY_URL = "https://pastebin.com/raw/tPTvV8rJ"
+local LIBRARY_URL = "https://vitalitys.lol/library.lua"
 
 -- Paste the raw URL of the already-hosted The Tower module here.
-local THE_TOWER_MODULE_URL = "https://pastebin.com/raw/ZLh86gKv"
+local THE_TOWER_MODULE_URL = "https://vitalitys.lol/towermod.lua"
 
 -- Murder Mystery 2 production module.
-local MM2_MODULE_URL = "https://pastebin.com/raw/rZGVgvvp"
+local MM2_MODULE_URL = "https://vitalitys.lol/mm2mod.lua"
 
 -- Apocalypse Rising 2 module.
 -- Upload VitalityHub_ApocalypseRising2_Module_v1_02.txt to Pastebin, then
 -- replace REPLACE_APOC2_RAW_ID below with that paste's raw ID.
 local APOCALYPSE_RISING_2_MODULE_URL =
-    "https://pastebin.com/raw/0jVEgje7"
+    "https://vitalitys.lol/ar2mod.lua"
 
 -- Generic Vitality component interface used when the current game is unsupported.
-local FALLBACK_MODULE_URL = "https://pastebin.com/raw/Ww9kQ1ci"
+local FALLBACK_MODULE_URL = "https://vitalitys.lol/fallbackmod.lua"
 
 -- Roblox universe IDs (game.GameId), NOT the place ID shown in the /games/ URL.
 -- The Tower by LegosAreGood05:
