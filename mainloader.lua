@@ -1,6 +1,6 @@
 -- vitality's hub / main loader
 -- Production-style game detection registry for Vitality Hub V2.8.3.3+
--- Supported production modules: The Tower, Apocalypse Rising 2, Murder Mystery 2
+-- Supported production modules: The Tower, Apocalypse Rising 2, Murder Mystery 2, Flick
 -- This is the ONE script/loadstring users execute.
 -- Current hosted mainloader reference supplied by user: https://pastebin.com/raw/jDFLeUSy
 
@@ -17,6 +17,10 @@ local MM2_MODULE_URL = "https://vitalitys.lol/mm2mod.lua"
 -- replace REPLACE_APOC2_RAW_ID below with that paste's raw ID.
 local APOCALYPSE_RISING_2_MODULE_URL =
     "https://vitalitys.lol/ar2mod.lua"
+
+-- Flick production module.
+-- Host the generated flickmod.lua at this URL.
+local FLICK_MODULE_URL = "https://vitalitys.lol/flickmod.lua"
 
 -- Generic Vitality component interface used when the current game is unsupported.
 local FALLBACK_MODULE_URL = "https://vitalitys.lol/fallbackmod.lua"
@@ -36,6 +40,11 @@ local APOCALYPSE_RISING_2_GAME_ID = 358276974
 -- game.GameId / universe ID: 66654135
 -- root PlaceId:              142823291
 local MM2_GAME_ID = 66654135
+
+-- [FPS] Flick by Groundwork.
+-- game.GameId / universe ID: 8795154789
+-- root PlaceId:              136801880565837
+local FLICK_GAME_ID = 8795154789
 
 local NovaField = loadstring(game:HttpGet(LIBRARY_URL, true))()
 
@@ -225,6 +234,14 @@ local SupportedGames = {
         Status = "yellow",
         Label = "Testing",
     },
+
+    [FLICK_GAME_ID] = {
+        Name = "Flick",
+        Version = "2.9.0",
+        Module = FLICK_MODULE_URL,
+        Status = "green",
+        Label = "Fully working",
+    },
 }
 
 -- Optional exact-place overrides can be added later. These take priority over
@@ -383,7 +400,7 @@ local Window = NovaField:CreateWindow({
             Section:CreateParagraph({
                 Title = "Detection details",
                 Content = "GameId: " .. tostring(context.GameId)
-                    .. "  •  PlaceId: " .. tostring(context.PlaceId),
+                    .. "  â€¢  PlaceId: " .. tostring(context.PlaceId),
             })
 
             Section:CreateParagraph({
@@ -427,6 +444,25 @@ local Window = NovaField:CreateWindow({
 
                 warn(
                     "[VitalityHub] Ignored duplicate Apocalypse Rising 2 load error after the interface was already ready: "
+                    .. tostring(info.Error or info.Reason or "unknown")
+                )
+                return
+            end
+
+            local completedFlickBuild =
+                rawget(
+                    _G,
+                    "__VITALITY_FLICK_MODULE_BUILD_STATE"
+                )
+
+            if type(completedFlickBuild) == "table"
+                and completedFlickBuild.Ready == true
+                and completedFlickBuild.Window == info.Window
+                and info.Detection
+                and tostring(info.Detection.Name) == "Flick" then
+
+                warn(
+                    "[VitalityHub] Ignored duplicate Flick load error after the interface was already ready: "
                     .. tostring(info.Error or info.Reason or "unknown")
                 )
                 return
