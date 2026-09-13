@@ -1,0 +1,123 @@
+{
+  "SchemaVersion": 1,
+  "UpdatedAt": "2026-09-13T00:00:00Z",
+
+  "Owners": [
+    69883038,
+    4783899582
+  ],
+
+  "Library": {
+    "LatestVersion": "2.8.3.3",
+    "Message": "",
+    "URL": "https://vitalitys.lol/library.lua"
+  },
+
+  "StatusDefinitions": {
+    "functional": {
+      "Label": "Fully Working",
+      "Color": "#42E88A",
+      "GlowColor": "#35F58B",
+      "LegacyLevel": "green"
+    },
+    "testing": {
+      "Label": "In Testing",
+      "Color": "#FFD84A",
+      "GlowColor": "#FFE46B",
+      "LegacyLevel": "yellow"
+    },
+    "limited": {
+      "Label": "Limited Functionality",
+      "Color": "#FF963D",
+      "GlowColor": "#FFAA55",
+      "LegacyLevel": "yellow"
+    },
+    "broken": {
+      "Label": "Not Working",
+      "Color": "#FF4D5E",
+      "GlowColor": "#FF4055",
+      "LegacyLevel": "red"
+    },
+    "maintenance": {
+      "Label": "Maintenance",
+      "Color": "#F1F5F9",
+      "GlowColor": "#FFFFFF",
+      "LegacyLevel": "yellow"
+    },
+    "updating": {
+      "Label": "Updating",
+      "Color": "#35D9FF",
+      "GlowColor": "#44E5FF",
+      "LegacyLevel": "yellow"
+    }
+  },
+
+  "Default": {
+    "State": "maintenance",
+    "Status": "yellow",
+    "Label": "Game Not Supported",
+    "Summary": "No dedicated Vitality module is currently available.",
+    "Detail": "Vitality loaded its fallback interface because this game does not have a registered module.",
+    "Tooltip": "A dedicated module may be added in the future."
+  },
+
+  "Games": {
+    "6701101774": {
+      "ModuleId": "the-tower",
+      "Name": "The Tower",
+      "Version": "1.9.14",
+      "ModuleURL": "https://vitalitys.lol/towermod.lua",
+      "State": "functional",
+      "Status": "green",
+      "Label": "Fully Working",
+      "Summary": "The Tower module is operational.",
+      "Detail": "All primary module systems are currently expected to function.",
+      "Tooltip": "Click or hover to view the complete module status.",
+      "UpdatedAt": "2026-09-13T00:00:00Z"
+    },
+
+    "66654135": {
+      "ModuleId": "murder-mystery-2",
+      "Name": "Murder Mystery 2",
+      "Version": "4.4",
+      "ModuleURL": "https://vitalitys.lol/mm2mod.lua",
+      "State": "functional",
+      "Status": "green",
+      "Label": "Fully Working",
+      "Summary": "The Murder Mystery 2 module is operational.",
+      "Detail": "All primary module systems are currently expected to function.",
+      "Tooltip": "Click or hover to view the complete module status.",
+      "UpdatedAt": "2026-09-13T00:00:00Z"
+    },
+
+    "358276974": {
+      "ModuleId": "apocalypse-rising-2",
+      "Name": "Apocalypse Rising 2",
+      "Version": "1.02",
+      "ModuleURL": "https://vitalitys.lol/ar2mod.lua",
+      "State": "testing",
+      "Status": "yellow",
+      "Label": "In Testing",
+      "Summary": "The Apocalypse Rising 2 module is undergoing testing.",
+      "Detail": "Some functionality may still require in-game verification.",
+      "Tooltip": "Testing status may change as features are verified.",
+      "UpdatedAt": "2026-09-13T00:00:00Z"
+    },
+
+    "8795154789": {
+      "ModuleId": "flick",
+      "Name": "Flick",
+      "Version": "2.9.0",
+      "ModuleURL": "https://vitalitys.lol/flickmod.lua",
+      "State": "functional",
+      "Status": "green",
+      "Label": "Fully Working",
+      "Summary": "The Flick module is operational.",
+      "Detail": "All primary module systems are currently expected to function.",
+      "Tooltip": "Click or hover to view the complete module status.",
+      "UpdatedAt": "2026-09-13T00:00:00Z"
+    }
+  },
+
+  "Places": {}
+}
