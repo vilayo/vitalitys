@@ -796,15 +796,110 @@ local function createVectorIcon(parent, name)
         return part
     end
 
-    if name == "home" then
-        -- Reference-inspired house: a clean roof line, straight walls, and a
-        -- centered door. Kept as an outline so it matches the rest of the hub.
-        segment(3.2, 10.0, 11.0, 3.2, 1.8)
-        segment(11.0, 3.2, 18.8, 10.0, 1.8)
-        segment(5.1, 8.4, 5.1, 18.7, 1.8)
-        segment(16.9, 8.4, 16.9, 18.7, 1.8)
-        segment(5.1, 18.7, 16.9, 18.7, 1.8)
-        outlinedBox(9.0, 13.6, 4.0, 5.1, 1.0, 1.45)
+    -- Small path helpers used by the reusable tab-icon set.  The user-supplied
+    -- references are normalized into the same 22 x 22 viewbox so every tab has
+    -- equal visual weight and remains theme/recolor compatible.
+    local function polyline(points, thickness, closed)
+        for i = 1, #points - 1 do
+            local a, b = points[i], points[i + 1]
+            segment(a[1], a[2], b[1], b[2], thickness)
+        end
+        if closed and #points > 2 then
+            local a, b = points[#points], points[1]
+            segment(a[1], a[2], b[1], b[2], thickness)
+        end
+    end
+
+    local function outlinedCircle(cx, cy, diameter, thickness)
+        local ring = iconPart(holder, {
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(cx, cy),
+            Size = UDim2.fromOffset(diameter, diameter),
+            BackgroundTransparency = 1,
+        })
+        corner(ring, diameter / 2)
+        local ringStroke = stroke(ring, Theme.Text, thickness or 1.7, 0)
+        ringStroke:SetAttribute("NovaIconPart", true)
+        return ring
+    end
+
+    local function arc(cx, cy, rx, ry, startDegrees, endDegrees, steps, thickness)
+        local points = {}
+        steps = math.max(2, steps or 8)
+        for i = 0, steps do
+            local t = math.rad(startDegrees + (endDegrees - startDegrees) * (i / steps))
+            table.insert(points, {cx + math.cos(t) * rx, cy + math.sin(t) * ry})
+        end
+        polyline(points, thickness or 1.7, false)
+    end
+
+    if name == "home" or name == "main" then
+        -- Reference 4: rounded house outline with a centered arched doorway.
+        polyline({
+            {2.5, 9.0}, {11.0, 1.8}, {19.5, 9.0},
+            {19.5, 17.7}, {18.8, 19.2}, {3.2, 19.2}, {2.5, 17.7},
+        }, 1.85, true)
+        outlinedBox(8.6, 12.4, 4.8, 6.8, 2.4, 1.75)
+
+    elseif name == "teleports" or name == "teleport" or name == "location" or name == "pin" then
+        -- Reference 1: map-pin / teleport marker.
+        polyline({
+            {11.0, 1.4}, {14.6, 2.2}, {17.4, 4.7}, {18.4, 8.0},
+            {17.8, 11.0}, {16.0, 14.0}, {13.8, 16.8}, {11.0, 20.3},
+            {8.2, 16.8}, {6.0, 14.0}, {4.2, 11.0}, {3.6, 8.0},
+            {4.6, 4.7}, {7.4, 2.2},
+        }, 1.85, true)
+        outlinedCircle(11.0, 8.0, 5.4, 1.8)
+
+    elseif name == "player_esp" or name == "esp" or name == "eye" then
+        -- Reference 2: eye silhouette used by Player ESP.
+        polyline({
+            {1.7, 11.0}, {4.0, 7.6}, {7.3, 5.3}, {11.0, 4.5},
+            {14.7, 5.3}, {18.0, 7.6}, {20.3, 11.0},
+            {18.0, 14.4}, {14.7, 16.7}, {11.0, 17.5},
+            {7.3, 16.7}, {4.0, 14.4},
+        }, 1.8, true)
+        outlinedCircle(11.0, 11.0, 6.0, 1.8)
+
+    elseif name == "players" or name == "users" or name == "group" then
+        -- Reference 3: two-player / group icon.
+        outlinedCircle(7.1, 7.0, 5.8, 1.75)
+        outlinedCircle(14.9, 5.2, 5.2, 1.65)
+        arc(8.1, 18.4, 5.5, 5.4, 180, 360, 9, 1.85)
+        polyline({
+            {12.5, 11.9}, {14.0, 11.1}, {15.8, 10.9}, {17.5, 11.5},
+            {18.7, 12.8}, {19.2, 14.5}, {19.3, 16.1},
+        }, 1.8, false)
+
+    elseif name == "sniper" or name == "scope" or name == "crosshair" then
+        -- Reference 5: scope ring with four inward ticks and a bold center cross.
+        outlinedCircle(11.0, 11.0, 18.6, 1.85)
+        segment(11.0, 1.7, 11.0, 5.0, 2.0)
+        segment(11.0, 17.0, 11.0, 20.3, 2.0)
+        segment(1.7, 11.0, 5.0, 11.0, 2.0)
+        segment(17.0, 11.0, 20.3, 11.0, 2.0)
+        segment(8.0, 11.0, 14.0, 11.0, 2.35)
+        segment(11.0, 8.0, 11.0, 14.0, 2.35)
+
+    elseif name == "character" or name == "user" or name == "person" then
+        -- Reference 6: single-character bust.
+        outlinedBox(7.5, 2.2, 7.0, 7.5, 3.0, 1.8)
+        arc(11.0, 19.3, 7.2, 6.2, 180, 360, 10, 1.85)
+
+    elseif name == "items" or name == "item" or name == "item_esp" or name == "sparkles" then
+        -- Reference 7: large four-point sparkle with two supporting sparkles.
+        polyline({
+            {9.6, 2.0}, {11.8, 7.2}, {17.3, 9.8}, {12.0, 12.2},
+            {9.6, 18.3}, {7.2, 12.2}, {2.0, 9.8}, {7.4, 7.2},
+        }, 1.75, true)
+        polyline({
+            {17.0, 1.9}, {18.0, 4.0}, {20.1, 5.0}, {18.0, 6.0},
+            {17.0, 8.1}, {16.0, 6.0}, {13.9, 5.0}, {16.0, 4.0},
+        }, 1.45, true)
+        polyline({
+            {16.7, 13.9}, {17.7, 16.0}, {19.8, 17.0}, {17.7, 18.0},
+            {16.7, 20.1}, {15.7, 18.0}, {13.6, 17.0}, {15.7, 16.0},
+        }, 1.45, true)
 
     elseif name == "keyboard" then
         -- Compact keyboard with readable key rows at 20px.
