@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "UpdatedAt": "2026-09-14T00:49:01.467Z",
+  "UpdatedAt": "2026-09-14T00:55:12.075Z",
   "Owners": [
     69883038,
     4783899582
@@ -88,13 +88,13 @@
       "Name": "The Tower",
       "Version": "1.9.14-LS",
       "ModuleURL": "https://vitalitys.lol/towermodLS.lua",
-      "State": "maintenance",
+      "State": "updating",
       "Status": "yellow",
-      "Label": "Maintenance",
-      "Summary": "The Tower module is operational.",
+      "Label": "Updating",
+      "Summary": "Updating some necessary features. Should be done within the hour",
       "Detail": "All primary module systems are currently expected to function.",
       "Tooltip": "Click or hover to view the complete module status.",
-      "UpdatedAt": "2026-09-14T00:49:01.467Z"
+      "UpdatedAt": "2026-09-14T00:55:12.075Z"
     },
     "8795154789": {
       "ModuleId": "flick",
