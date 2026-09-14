@@ -54,7 +54,7 @@ local FLICK_GAME_ID = 8795154789
 
 -- TODO KAT: fill in the verified universe ID (game.GameId), NOT a PlaceId.
 -- The four supplied scripts do not identify it. Zero keeps KAT unregistered.
-local KAT_GAME_ID = 0
+local KAT_GAME_ID = 621129760
 
 local NovaField = loadstring(game:HttpGet(LIBRARY_URL, true))()
 
