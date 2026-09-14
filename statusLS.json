@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "UpdatedAt": "2026-09-14T01:14:32.316Z",
+  "UpdatedAt": "2026-09-14T01:14:57.544Z",
   "Owners": [
     69883038,
     4783899582
@@ -79,9 +79,9 @@
       "Status": "red",
       "Label": "Not Working",
       "Summary": "The Apocalypse Rising 2 module is undergoing testing.",
-      "Detail": "Some functionality may still require in-game verification.",
+      "Detail": "shit so broken rn dont use it please",
       "Tooltip": "do not use this sh1t rn so broken and ass",
-      "UpdatedAt": "2026-09-14T01:12:31.970Z"
+      "UpdatedAt": "2026-09-14T01:14:57.544Z"
     },
     "6701101774": {
       "ModuleId": "the-tower",
