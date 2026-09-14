@@ -108,6 +108,19 @@
       "Detail": "All primary module systems are currently expected to function.",
       "Tooltip": "Click or hover to view the complete module status.",
       "UpdatedAt": "2026-09-14T01:24:25.761Z"
+    },
+    "254394801": {
+      "ModuleId": "kat",
+      "Name": "KAT",
+      "Version": "1.0.0-LS",
+      "ModuleURL": "https://vitalitys.lol/katmodLS.lua",
+      "State": "testing",
+      "Status": "yellow",
+      "Label": "In Testing",
+      "Summary": "The KAT module is currently undergoing testing.",
+      "Detail": "Core KAT functionality is operational while additional features are being developed and verified.",
+      "Tooltip": "KAT is currently in active testing.",
+      "UpdatedAt": "2026-09-14T01:24:25.761Z"
     }
   },
   "Places": {}
