@@ -503,7 +503,7 @@ local Window = NovaField:CreateWindow({
     -- remote status backend without changing game/module detection.
     StatusControl = {
         Enabled = true,
-        PollInterval = 30,
+        PollInterval = 5,
         URL = "",
         LocalManifest = {
             Library = {LatestVersion = "2.8.3.3"},
