@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "UpdatedAt": "2026-09-14T01:12:31.970Z",
+  "UpdatedAt": "2026-09-14T01:14:32.316Z",
   "Owners": [
     69883038,
     4783899582
@@ -92,9 +92,9 @@
       "Status": "green",
       "Label": "Fully Working",
       "Summary": "Updating some necessary features. Should be done within the hour",
-      "Detail": "All primary module systems are currently expected to function.",
+      "Detail": "The Tower is fully operational.",
       "Tooltip": "Adjusting some of the auto safe+key functionality, otherwise fully functional!",
-      "UpdatedAt": "2026-09-14T01:10:56.805Z"
+      "UpdatedAt": "2026-09-14T01:14:32.316Z"
     },
     "8795154789": {
       "ModuleId": "flick",
