@@ -3065,7 +3065,7 @@ function WindowMethods:StartStatusControl()
     self._statusControlRunning = true
     self._statusControlToken = (self._statusControlToken or 0) + 1
     local token = self._statusControlToken
-    local interval = math.max(15, tonumber(config.PollInterval) or 30)
+    local interval = math.max(5, tonumber(config.PollInterval) or 5)
 
     task.spawn(function()
         while self.Gui and self.Gui.Parent and self._statusControlRunning and self._statusControlToken == token do
