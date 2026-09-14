@@ -6529,7 +6529,7 @@ function WindowMethods:_refreshOwnerStatusCards()
         local source = self.StatusManifestSource == "remote" and "Live manifest" or "Local fallback"
         self.OwnerDashboard.RefreshLabel:Set(
             source .. "  \194\183  " .. tostring(#entries) .. " modules  \194\183  refreshes every "
-            .. tostring(math.max(15, tonumber(self.Settings.StatusControl and self.Settings.StatusControl.PollInterval) or 30))
+            .. tostring(math.max(5, tonumber(self.Settings.StatusControl and self.Settings.StatusControl.PollInterval) or 5))
             .. " seconds"
         )
     end
