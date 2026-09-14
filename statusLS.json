@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "UpdatedAt": "2026-09-14T01:10:56.805Z",
+  "UpdatedAt": "2026-09-14T01:12:31.970Z",
   "Owners": [
     69883038,
     4783899582
@@ -75,13 +75,13 @@
       "Name": "Apocalypse Rising 2",
       "Version": "1.02-LS",
       "ModuleURL": "https://vitalitys.lol/ar2modLS.lua",
-      "State": "testing",
-      "Status": "yellow",
-      "Label": "In Testing",
+      "State": "broken",
+      "Status": "red",
+      "Label": "Not Working",
       "Summary": "The Apocalypse Rising 2 module is undergoing testing.",
       "Detail": "Some functionality may still require in-game verification.",
-      "Tooltip": "Testing status may change as features are verified.",
-      "UpdatedAt": "2026-09-13T05:05:35Z"
+      "Tooltip": "do not use this sh1t rn so broken and ass",
+      "UpdatedAt": "2026-09-14T01:12:31.970Z"
     },
     "6701101774": {
       "ModuleId": "the-tower",
