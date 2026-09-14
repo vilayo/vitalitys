@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "UpdatedAt": "2026-09-14T01:14:57.544Z",
+  "UpdatedAt": "2026-09-14T01:21:46.466Z",
   "Owners": [
     69883038,
     4783899582
@@ -101,13 +101,13 @@
       "Name": "Flick",
       "Version": "2.9.0-LS",
       "ModuleURL": "https://vitalitys.lol/flickmodLS.lua",
-      "State": "functional",
-      "Status": "green",
-      "Label": "Fully Working",
-      "Summary": "The Flick module is operational.",
+      "State": "updating",
+      "Status": "yellow",
+      "Label": "Updating",
+      "Summary": "super hot sexy update coming",
       "Detail": "All primary module systems are currently expected to function.",
       "Tooltip": "Click or hover to view the complete module status.",
-      "UpdatedAt": "2026-09-13T05:05:35Z"
+      "UpdatedAt": "2026-09-14T01:21:46.466Z"
     }
   },
   "Places": {}
