@@ -25,6 +25,9 @@ local FLICK_MODULE_URL = "https://vitalitys.lol/flickmodLS.lua"
 -- Upload katmodLS.lua to this URL before enabling the KAT registration.
 local KAT_MODULE_URL = "https://vitalitys.lol/katmodLS.lua"
 
+-- Host the Anime Dice module here before enabling its live registry entry.
+local ANIME_DICE_MODULE_URL = "https://vitalitys.lol/animedicemodLS.lua"
+
 -- Generic Vitality component interface used when the current game is unsupported.
 local FALLBACK_MODULE_URL = "https://vitalitys.lol/fallbackmodLS.lua"
 
@@ -60,6 +63,9 @@ local FLICK_GAME_ID = 8795154789
 -- TODO KAT: fill in the verified universe ID (game.GameId), NOT a PlaceId.
 -- The four supplied scripts do not identify it. Zero keeps KAT unregistered.
 local KAT_GAME_ID = 254394801
+
+-- Anime Dice: place 113290951185459; universe verified with Roblox public API.
+local ANIME_DICE_GAME_ID = 10708913337
 
 local NovaField = loadstring(game:HttpGet(LIBRARY_URL, true))()
 
@@ -524,6 +530,17 @@ end
 -- Static fallback registry. Cloudflare Live can add/remove modules dynamically at runtime.
 -- ============================================================
 local SupportedGames = {
+    [ANIME_DICE_GAME_ID] = {
+        ModuleId = "anime-dice",
+        LiveModuleId = "anime-dice",
+        Name = "Anime Dice",
+        Version = "1.0.0-LS",
+        Module = ANIME_DICE_MODULE_URL,
+        Status = "yellow",
+        State = "testing",
+        Label = "Testing",
+    },
+
     [THE_TOWER_GAME_ID] = {
         ModuleId = "the-tower",
         LiveModuleId = "tower",
@@ -690,6 +707,8 @@ local LOCAL_STATUS_DEFINITIONS = {
 --     VitalityHub/owner.key file on their own executor/device.
 
 local LIVE_MODULE_ALIASES = {
+    ["anime-dice"] = "anime-dice",
+    ["animedice"] = "anime-dice",
     ["tower"] = "tower",
     ["the-tower"] = "tower",
     ["thetower"] = "tower",
@@ -704,6 +723,7 @@ local LIVE_MODULE_ALIASES = {
 }
 
 local VALID_LIVE_MODULES = {
+    ["anime-dice"] = true,
     tower = true,
     kat = true,
     flick = true,
