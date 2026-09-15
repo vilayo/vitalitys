@@ -12,7 +12,7 @@ local TextService = game:GetService("TextService")
 local LocalPlayer = Players.LocalPlayer
 
 local Library = {
-    Version = "2.12.1-LS",
+    Version = "2.13.0-LS",
     Flags = {},
     _openPopup = nil,
     _openPopupOwner = nil,
@@ -4828,6 +4828,1133 @@ function WindowMethods:_refreshTabDropdownStyles()
     end
 end
 
+-- ============================================================
+-- UNIVERSAL FEATURE LAYER
+-- ============================================================
+-- These controls are library-owned, so every supported module inherits the
+-- same Player / Visuals / Utilities pages without duplicating code in each
+-- game module. Game-specific implementations may still coexist separately.
+local function universalNotify(window, title, content, notificationType)
+    if not window or type(window.Notify) ~= "function" then return end
+    pcall(function()
+        window:Notify({
+            Title = tostring(title or "Universal"),
+            Content = tostring(content or ""),
+            Type = notificationType or "Information",
+            Duration = 4,
+        })
+    end)
+end
+
+local function universalCurrentHumanoid()
+    local player = Players.LocalPlayer
+    local character = player and player.Character
+    return character and character:FindFirstChildOfClass("Humanoid") or nil
+end
+
+local function buildUniversalPlayerPage(window, tab)
+    local section = tab:CreateSection({
+        Name = "Movement",
+        Description = "Generic movement controls. Game-specific movement systems can still be used separately.",
+        Side = "Left",
+    })
+
+    local state = {
+        SpeedEnabled = false,
+        Speed = 16,
+        JumpEnabled = false,
+        JumpHeight = 7.2,
+        Humanoid = nil,
+        Originals = setmetatable({}, {__mode = "k"}),
+    }
+    window._universalMovementState = state
+
+    local function remember(humanoid)
+        if not humanoid or state.Originals[humanoid] then return end
+        state.Originals[humanoid] = {
+            WalkSpeed = humanoid.WalkSpeed,
+            JumpHeight = humanoid.JumpHeight,
+            JumpPower = humanoid.JumpPower,
+            UseJumpPower = humanoid.UseJumpPower,
+        }
+    end
+
+    local function apply(humanoid)
+        humanoid = humanoid or universalCurrentHumanoid()
+        if not humanoid then return end
+        remember(humanoid)
+        state.Humanoid = humanoid
+
+        if state.SpeedEnabled then
+            pcall(function() humanoid.WalkSpeed = state.Speed end)
+        end
+
+        if state.JumpEnabled then
+            pcall(function()
+                humanoid.UseJumpPower = false
+                humanoid.JumpHeight = state.JumpHeight
+            end)
+        end
+    end
+
+    local function restoreHumanoid(humanoid, restoreSpeed, restoreJump)
+        if not humanoid then return end
+        local original = state.Originals[humanoid]
+        if not original then return end
+
+        if restoreSpeed then
+            pcall(function() humanoid.WalkSpeed = original.WalkSpeed end)
+        end
+
+        if restoreJump then
+            pcall(function()
+                humanoid.UseJumpPower = original.UseJumpPower
+                humanoid.JumpHeight = original.JumpHeight
+                humanoid.JumpPower = original.JumpPower
+            end)
+        end
+    end
+
+    section:CreateSlider({
+        Name = "Movement Speed",
+        Info = "Sets Humanoid.WalkSpeed while the universal speed override is enabled.",
+        Flag = "Universal_MovementSpeed",
+        Range = {8, 120},
+        Increment = 1,
+        Suffix = " studs/s",
+        CurrentValue = 16,
+        Callback = function(value)
+            state.Speed = math.clamp(tonumber(value) or 16, 8, 120)
+            if state.SpeedEnabled then apply() end
+        end,
+    })
+
+    section:CreateToggle({
+        Name = "Enable Movement Speed",
+        Info = "Continuously reapplies the selected movement speed.",
+        Flag = "Universal_MovementSpeedEnabled",
+        CurrentValue = false,
+        Callback = function(value)
+            state.SpeedEnabled = value == true
+            local humanoid = universalCurrentHumanoid()
+            if state.SpeedEnabled then
+                apply(humanoid)
+            else
+                restoreHumanoid(humanoid or state.Humanoid, true, false)
+            end
+        end,
+    })
+
+    section:CreateSlider({
+        Name = "Jump Height",
+        Info = "Uses Humanoid.JumpHeight while enabled. Turning it off restores the previous jump mode/value.",
+        Flag = "Universal_JumpHeight",
+        Range = {2, 50},
+        Increment = 0.5,
+        Suffix = " studs",
+        CurrentValue = 7.2,
+        Callback = function(value)
+            state.JumpHeight = math.clamp(tonumber(value) or 7.2, 2, 50)
+            if state.JumpEnabled then apply() end
+        end,
+    })
+
+    section:CreateToggle({
+        Name = "Enable Jump Height",
+        Info = "Applies the selected universal jump height.",
+        Flag = "Universal_JumpHeightEnabled",
+        CurrentValue = false,
+        Callback = function(value)
+            state.JumpEnabled = value == true
+            local humanoid = universalCurrentHumanoid()
+            if state.JumpEnabled then
+                apply(humanoid)
+            else
+                restoreHumanoid(humanoid or state.Humanoid, false, true)
+            end
+        end,
+    })
+
+    section:CreateButton({
+        Name = "Reset Movement",
+        Callback = function()
+            state.SpeedEnabled = false
+            state.JumpEnabled = false
+            local humanoid = universalCurrentHumanoid() or state.Humanoid
+            restoreHumanoid(humanoid, true, true)
+            universalNotify(window, "Universal Player", "Movement overrides restored.", "Success")
+        end,
+    })
+
+    window:TrackConnection(RunService.Heartbeat:Connect(function()
+        if state.SpeedEnabled or state.JumpEnabled then
+            apply()
+        end
+    end))
+
+    if Players.LocalPlayer then
+        window:TrackConnection(Players.LocalPlayer.CharacterAdded:Connect(function(character)
+            local humanoid = character:WaitForChild("Humanoid", 10)
+            if humanoid then
+                task.defer(function()
+                    if window._destroyed then return end
+                    apply(humanoid)
+                end)
+            end
+        end))
+    end
+
+    window:AddCleanup(function()
+        state.SpeedEnabled = false
+        state.JumpEnabled = false
+        for humanoid in pairs(state.Originals) do
+            restoreHumanoid(humanoid, true, true)
+        end
+        window._universalMovementState = nil
+    end)
+end
+
+local function buildUniversalVisualsPage(window, tab)
+    local controls = tab:CreateSection({
+        Name = "Player ESP",
+        Description = "Universal player ESP migrated from the Tower foundation and extended with tracers.",
+        Side = "Left",
+    })
+    local appearance = tab:CreateSection({
+        Name = "ESP Appearance",
+        Description = "Shared text, distance and drawing options.",
+        Side = "Right",
+    })
+    local colors = tab:CreateSection({
+        Name = "ESP Colors",
+        Description = "Universal ESP colors.",
+        Side = "Right",
+    })
+
+    local ESP = {
+        Features = {},
+        IgnoreTeammates = false,
+        MaxDistance = 5000,
+        HealthBarPosition = "Above Player",
+        NameMode = "Username",
+        TextSize = 16,
+        TextHeight = 3,
+        NameOutline = true,
+        TracerOrigin = "Bottom",
+        TracerThickness = 1,
+
+        Colors = {
+            Name = Color3.fromRGB(255,255,255),
+            Outline = Color3.fromRGB(0,0,0),
+            HealthLow = Color3.fromRGB(255,50,50),
+            HealthHigh = Color3.fromRGB(75,255,120),
+            ChamsHigh = Color3.fromRGB(75,255,120),
+            ChamsMid = Color3.fromRGB(255,220,70),
+            ChamsLow = Color3.fromRGB(255,70,70),
+            ChamsOutline = Color3.fromRGB(255,255,255),
+            Skeleton = Color3.fromRGB(255,255,255),
+            Box = Color3.fromRGB(255,255,255),
+            Tracer = Color3.fromRGB(255,255,255),
+        },
+
+        PlayerData = {},
+        DrawingSupported = type(Drawing) == "table" and type(Drawing.new) == "function",
+
+        SkeletonR15 = {
+            {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
+            {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
+            {"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
+            {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
+            {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
+        },
+        SkeletonR6 = {
+            {"Head","Torso"},{"Torso","Left Arm"},{"Torso","Right Arm"},{"Torso","Left Leg"},{"Torso","Right Leg"},
+        },
+    }
+    window._universalESP = ESP
+
+    local function feature(name)
+        return ESP.Features[name] == true
+    end
+
+    local function removeDrawing(object)
+        if not object then return end
+        pcall(function()
+            object.Visible = false
+            object:Remove()
+        end)
+    end
+
+    local function newLine()
+        if not ESP.DrawingSupported then return nil end
+        local ok, line = pcall(Drawing.new, "Line")
+        if not ok then return nil end
+        line.Visible = false
+        line.Thickness = 1
+        line.Transparency = 1
+        return line
+    end
+
+    local function destroyPlayerData(plr)
+        local data = ESP.PlayerData[plr]
+        if not data then return end
+
+        for _, object in ipairs({data.Billboard, data.HealthGui, data.Highlight}) do
+            if object then pcall(function() object:Destroy() end) end
+        end
+
+        for _, line in ipairs(data.SkeletonLines or {}) do removeDrawing(line) end
+        for _, line in ipairs(data.BoxLines or {}) do removeDrawing(line) end
+        removeDrawing(data.TracerLine)
+
+        ESP.PlayerData[plr] = nil
+    end
+
+    local function ensureData(plr)
+        if not plr or plr == Players.LocalPlayer then return nil end
+        local data = ESP.PlayerData[plr]
+        if data then return data end
+
+        data = {
+            Player = plr,
+            SkeletonLines = {},
+            BoxLines = {},
+        }
+        ESP.PlayerData[plr] = data
+        return data
+    end
+
+    local function allowed(plr, root)
+        if not plr or plr == Players.LocalPlayer or not root then return false end
+        if ESP.IgnoreTeammates and Players.LocalPlayer
+            and Players.LocalPlayer.Team ~= nil
+            and plr.Team == Players.LocalPlayer.Team then
+            return false
+        end
+
+        local localRoot = Players.LocalPlayer
+            and Players.LocalPlayer.Character
+            and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+        if localRoot and (root.Position - localRoot.Position).Magnitude > ESP.MaxDistance then
+            return false
+        end
+
+        return true
+    end
+
+    local function playerDisplayName(plr)
+        if ESP.NameMode == "Display Name" then
+            return plr.DisplayName
+        elseif ESP.NameMode == "Display + Username" and plr.DisplayName ~= plr.Name then
+            return plr.DisplayName .. " (@" .. plr.Name .. ")"
+        end
+        return plr.Name
+    end
+
+    local function ensureBillboard(data, head)
+        if data.Billboard and data.Billboard.Parent and data.Billboard.Adornee == head then
+            return data.Billboard
+        end
+        if data.Billboard then pcall(function() data.Billboard:Destroy() end) end
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "VitalityUniversal_PlayerESP"
+        billboard.AlwaysOnTop = true
+        billboard.Adornee = head
+        billboard.Size = UDim2.fromOffset(280, 52)
+        billboard.StudsOffset = Vector3.new(0, ESP.TextHeight, 0)
+        billboard.Parent = CoreGui
+
+        local name = Instance.new("TextLabel")
+        name.Name = "NameLabel"
+        name.BackgroundTransparency = 1
+        name.Size = UDim2.new(1,0,0,28)
+        name.Position = UDim2.fromOffset(0,0)
+        name.TextXAlignment = Enum.TextXAlignment.Center
+        name.TextYAlignment = Enum.TextYAlignment.Center
+        name.Font = Enum.Font.GothamBold
+        name.Parent = billboard
+
+        local distance = Instance.new("TextLabel")
+        distance.Name = "DistanceLabel"
+        distance.BackgroundTransparency = 1
+        distance.Size = UDim2.new(1,0,0,20)
+        distance.Position = UDim2.fromOffset(0,26)
+        distance.TextXAlignment = Enum.TextXAlignment.Center
+        distance.TextYAlignment = Enum.TextYAlignment.Center
+        distance.Font = Enum.Font.Gotham
+        distance.Parent = billboard
+
+        data.Billboard = billboard
+        return billboard
+    end
+
+    local function ensureHealth(data, root, head)
+        local target = ESP.HealthBarPosition == "Left of Player" and root or head
+        if data.HealthGui and data.HealthGui.Parent and data.HealthGui.Adornee == target then
+            return data.HealthGui
+        end
+        if data.HealthGui then pcall(function() data.HealthGui:Destroy() end) end
+
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "VitalityUniversal_HealthESP"
+        gui.AlwaysOnTop = true
+        gui.Adornee = target
+        gui.Parent = CoreGui
+
+        local back = Instance.new("Frame")
+        back.Name = "Back"
+        back.BackgroundColor3 = Color3.fromRGB(0,0,0)
+        back.BorderSizePixel = 0
+        back.Parent = gui
+
+        local fill = Instance.new("Frame")
+        fill.Name = "Fill"
+        fill.BorderSizePixel = 0
+        fill.Parent = back
+
+        if ESP.HealthBarPosition == "Left of Player" then
+            gui.Size = UDim2.fromOffset(8, 72)
+            gui.StudsOffset = Vector3.new(-2.4, 0, 0)
+            back.AnchorPoint = Vector2.new(0.5,0)
+            back.Position = UDim2.new(0.5,0,0,0)
+            back.Size = UDim2.new(0,4,1,0)
+            fill.AnchorPoint = Vector2.new(0,1)
+            fill.Position = UDim2.new(0,0,1,0)
+            fill.Size = UDim2.new(1,0,1,0)
+        else
+            gui.Size = UDim2.fromOffset(84, 10)
+            gui.StudsOffset = Vector3.new(0,2.65,0)
+            back.Position = UDim2.new(0,2,0,2)
+            back.Size = UDim2.new(1,-4,0,6)
+            fill.AnchorPoint = Vector2.new(0,0)
+            fill.Position = UDim2.fromOffset(0,0)
+            fill.Size = UDim2.fromScale(1,1)
+        end
+
+        data.HealthGui = gui
+        data.HealthBack = back
+        data.HealthFill = fill
+        return gui
+    end
+
+    local function ensureHighlight(data, character)
+        if data.Highlight and data.Highlight.Parent == character then
+            return data.Highlight
+        end
+        if data.Highlight then pcall(function() data.Highlight:Destroy() end) end
+
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "VitalityUniversal_Chams"
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.FillTransparency = 0.45
+        highlight.OutlineTransparency = 0.05
+        highlight.Adornee = character
+        highlight.Parent = character
+        data.Highlight = highlight
+        return highlight
+    end
+
+    local function setLine(line, visible, from, to, color, thickness)
+        if not line then return end
+        line.Visible = visible == true
+        if not visible then return end
+        line.From = from
+        line.To = to
+        line.Color = color
+        line.Thickness = thickness or 1
+        line.Transparency = 1
+    end
+
+    local function hideDrawing(data)
+        for _, line in ipairs(data.SkeletonLines or {}) do
+            if line then line.Visible = false end
+        end
+        for _, line in ipairs(data.BoxLines or {}) do
+            if line then line.Visible = false end
+        end
+        if data.TracerLine then data.TracerLine.Visible = false end
+    end
+
+    local function projectedBounds(character, camera)
+        local ok, cframe, size = pcall(character.GetBoundingBox, character)
+        if not ok then return nil end
+
+        local half = size * 0.5
+        local corners = {
+            Vector3.new(-half.X,-half.Y,-half.Z), Vector3.new(-half.X,-half.Y,half.Z),
+            Vector3.new(-half.X,half.Y,-half.Z), Vector3.new(-half.X,half.Y,half.Z),
+            Vector3.new(half.X,-half.Y,-half.Z), Vector3.new(half.X,-half.Y,half.Z),
+            Vector3.new(half.X,half.Y,-half.Z), Vector3.new(half.X,half.Y,half.Z),
+        }
+
+        local minX, minY = math.huge, math.huge
+        local maxX, maxY = -math.huge, -math.huge
+        local any = false
+
+        for _, offset in ipairs(corners) do
+            local world = cframe:PointToWorldSpace(offset)
+            local point = camera:WorldToViewportPoint(world)
+            if point.Z > 0 then
+                any = true
+                minX = math.min(minX, point.X)
+                minY = math.min(minY, point.Y)
+                maxX = math.max(maxX, point.X)
+                maxY = math.max(maxY, point.Y)
+            end
+        end
+
+        if not any then return nil end
+        return Vector2.new(minX,minY), Vector2.new(maxX,maxY)
+    end
+
+    local function updatePlayer(plr, data)
+        local character = plr.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local head = character and character:FindFirstChild("Head")
+        local root = character and (
+            character:FindFirstChild("HumanoidRootPart")
+            or character:FindFirstChild("UpperTorso")
+            or character:FindFirstChild("Torso")
+        )
+        local camera = workspace.CurrentCamera
+
+        if not character or not humanoid or humanoid.Health <= 0 or not head or not root or not camera or not allowed(plr, root) then
+            if data.Billboard then data.Billboard.Enabled = false end
+            if data.HealthGui then data.HealthGui.Enabled = false end
+            if data.Highlight then data.Highlight.Enabled = false end
+            hideDrawing(data)
+            return
+        end
+
+        local localRoot = Players.LocalPlayer
+            and Players.LocalPlayer.Character
+            and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local distanceStuds = localRoot and math.floor((root.Position - localRoot.Position).Magnitude + 0.5) or 0
+        local healthRatio = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
+
+        if feature("Name ESP") or feature("Distance ESP") then
+            local billboard = ensureBillboard(data, head)
+            billboard.Enabled = true
+            billboard.StudsOffset = Vector3.new(0, ESP.TextHeight, 0)
+
+            local nameLabel = billboard:FindFirstChild("NameLabel")
+            local distanceLabel = billboard:FindFirstChild("DistanceLabel")
+
+            if nameLabel then
+                nameLabel.Visible = feature("Name ESP")
+                nameLabel.Text = playerDisplayName(plr)
+                nameLabel.TextColor3 = ESP.Colors.Name
+                nameLabel.TextStrokeColor3 = ESP.Colors.Outline
+                nameLabel.TextStrokeTransparency = ESP.NameOutline and 0 or 1
+                nameLabel.TextSize = ESP.TextSize
+            end
+
+            if distanceLabel then
+                distanceLabel.Visible = feature("Distance ESP")
+                distanceLabel.Text = tostring(distanceStuds) .. " studs"
+                distanceLabel.TextColor3 = ESP.Colors.Name
+                distanceLabel.TextStrokeColor3 = ESP.Colors.Outline
+                distanceLabel.TextStrokeTransparency = ESP.NameOutline and 0 or 1
+                distanceLabel.TextSize = math.max(10, ESP.TextSize - 2)
+            end
+        elseif data.Billboard then
+            data.Billboard.Enabled = false
+        end
+
+        if feature("Health Bar ESP") then
+            ensureHealth(data, root, head)
+            if data.HealthGui and data.HealthFill then
+                data.HealthGui.Enabled = true
+                data.HealthFill.BackgroundColor3 = ESP.Colors.HealthLow:Lerp(ESP.Colors.HealthHigh, healthRatio)
+                if ESP.HealthBarPosition == "Left of Player" then
+                    data.HealthFill.Size = UDim2.new(1,0,healthRatio,0)
+                else
+                    data.HealthFill.Size = UDim2.new(healthRatio,0,1,0)
+                end
+            end
+        elseif data.HealthGui then
+            data.HealthGui.Enabled = false
+        end
+
+        if feature("Health Chams") then
+            local highlight = ensureHighlight(data, character)
+            highlight.Enabled = true
+            highlight.OutlineColor = ESP.Colors.ChamsOutline
+            if healthRatio > 0.66 then
+                highlight.FillColor = ESP.Colors.ChamsHigh
+            elseif healthRatio > 0.33 then
+                highlight.FillColor = ESP.Colors.ChamsMid
+            else
+                highlight.FillColor = ESP.Colors.ChamsLow
+            end
+        elseif data.Highlight then
+            data.Highlight.Enabled = false
+        end
+
+        if not ESP.DrawingSupported then
+            hideDrawing(data)
+            return
+        end
+
+        local rootPoint = camera:WorldToViewportPoint(root.Position)
+        local rootVisible = rootPoint.Z > 0
+
+        if feature("Skeleton ESP") and rootVisible then
+            local bones = humanoid.RigType == Enum.HumanoidRigType.R6 and ESP.SkeletonR6 or ESP.SkeletonR15
+            while #data.SkeletonLines < #bones do
+                table.insert(data.SkeletonLines, newLine())
+            end
+            for index, pair in ipairs(bones) do
+                local a, b = character:FindFirstChild(pair[1]), character:FindFirstChild(pair[2])
+                local line = data.SkeletonLines[index]
+                if a and b and line then
+                    local p1 = camera:WorldToViewportPoint(a.Position)
+                    local p2 = camera:WorldToViewportPoint(b.Position)
+                    setLine(
+                        line,
+                        p1.Z > 0 and p2.Z > 0,
+                        Vector2.new(p1.X,p1.Y),
+                        Vector2.new(p2.X,p2.Y),
+                        ESP.Colors.Skeleton,
+                        1
+                    )
+                elseif line then
+                    line.Visible = false
+                end
+            end
+        else
+            for _, line in ipairs(data.SkeletonLines) do
+                if line then line.Visible = false end
+            end
+        end
+
+        if feature("Bounding Box ESP") and rootVisible then
+            while #data.BoxLines < 4 do table.insert(data.BoxLines, newLine()) end
+            local minimum, maximum = projectedBounds(character, camera)
+            if minimum and maximum then
+                local tl = Vector2.new(minimum.X, minimum.Y)
+                local tr = Vector2.new(maximum.X, minimum.Y)
+                local br = Vector2.new(maximum.X, maximum.Y)
+                local bl = Vector2.new(minimum.X, maximum.Y)
+                local points = {{tl,tr},{tr,br},{br,bl},{bl,tl}}
+                for index, pair in ipairs(points) do
+                    setLine(data.BoxLines[index], true, pair[1], pair[2], ESP.Colors.Box, 1)
+                end
+            else
+                for _, line in ipairs(data.BoxLines) do if line then line.Visible = false end end
+            end
+        else
+            for _, line in ipairs(data.BoxLines) do if line then line.Visible = false end end
+        end
+
+        if feature("Tracers") and rootVisible then
+            data.TracerLine = data.TracerLine or newLine()
+            local viewport = camera.ViewportSize
+            local origin
+            if ESP.TracerOrigin == "Center" then
+                origin = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
+            elseif ESP.TracerOrigin == "Mouse" then
+                local mouse = UserInputService:GetMouseLocation()
+                origin = Vector2.new(mouse.X, mouse.Y)
+            else
+                origin = Vector2.new(viewport.X * 0.5, viewport.Y - 2)
+            end
+            setLine(
+                data.TracerLine,
+                true,
+                origin,
+                Vector2.new(rootPoint.X, rootPoint.Y),
+                ESP.Colors.Tracer,
+                ESP.TracerThickness
+            )
+        elseif data.TracerLine then
+            data.TracerLine.Visible = false
+        end
+    end
+
+    local function refreshAll()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Players.LocalPlayer then
+                ensureData(plr)
+            end
+        end
+        for plr in pairs(ESP.PlayerData) do
+            if plr.Parent ~= Players then destroyPlayerData(plr) end
+        end
+    end
+
+    controls:CreateDropdown({
+        Name = "ESP Features",
+        Info = "Select any combination of universal player ESP features.",
+        Flag = "Universal_ESP_Features",
+        Options = {
+            "Name ESP",
+            "Distance ESP",
+            "Health Bar ESP",
+            "Health Chams",
+            "Skeleton ESP",
+            "Bounding Box ESP",
+            "Tracers",
+        },
+        CurrentOption = {},
+        MultiSelection = true,
+        Callback = function(selection)
+            local selected = {}
+            if type(selection) == "table" then
+                for _, value in pairs(selection) do selected[tostring(value)] = true end
+            elseif selection then
+                selected[tostring(selection)] = true
+            end
+            ESP.Features = selected
+            refreshAll()
+        end,
+    })
+
+    controls:CreateToggle({
+        Name = "Ignore Teammates",
+        Info = "Hides ESP for players on your current Roblox team.",
+        Flag = "Universal_ESP_IgnoreTeammates",
+        CurrentValue = false,
+        Callback = function(value) ESP.IgnoreTeammates = value == true end,
+    })
+
+    controls:CreateSlider({
+        Name = "Maximum Distance",
+        Flag = "Universal_ESP_MaxDistance",
+        Range = {100, 10000},
+        Increment = 100,
+        Suffix = " studs",
+        CurrentValue = 5000,
+        Callback = function(value) ESP.MaxDistance = tonumber(value) or 5000 end,
+    })
+
+    controls:CreateDropdown({
+        Name = "Health Bar Position",
+        Flag = "Universal_ESP_HealthBarPosition",
+        Options = {"Above Player", "Left of Player"},
+        CurrentOption = "Above Player",
+        Callback = function(value)
+            if type(value) == "table" then value = value[1] end
+            ESP.HealthBarPosition = tostring(value or "Above Player")
+            for _, data in pairs(ESP.PlayerData) do
+                if data.HealthGui then
+                    pcall(function() data.HealthGui:Destroy() end)
+                    data.HealthGui = nil
+                    data.HealthBack = nil
+                    data.HealthFill = nil
+                end
+            end
+        end,
+    })
+
+    appearance:CreateDropdown({
+        Name = "Name Format",
+        Flag = "Universal_ESP_NameFormat",
+        Options = {"Username", "Display Name", "Display + Username"},
+        CurrentOption = "Username",
+        Callback = function(value)
+            if type(value) == "table" then value = value[1] end
+            ESP.NameMode = tostring(value or "Username")
+        end,
+    })
+
+    appearance:CreateToggle({
+        Name = "Name Outline",
+        Flag = "Universal_ESP_NameOutline",
+        CurrentValue = true,
+        Callback = function(value) ESP.NameOutline = value == true end,
+    })
+
+    appearance:CreateSlider({
+        Name = "Text Size",
+        Flag = "Universal_ESP_TextSize",
+        Range = {10, 32},
+        Increment = 1,
+        Suffix = "px",
+        CurrentValue = 16,
+        Callback = function(value) ESP.TextSize = tonumber(value) or 16 end,
+    })
+
+    appearance:CreateSlider({
+        Name = "Text Height",
+        Flag = "Universal_ESP_TextHeight",
+        Range = {1, 8},
+        Increment = 0.25,
+        Suffix = " studs",
+        CurrentValue = 3,
+        Callback = function(value) ESP.TextHeight = tonumber(value) or 3 end,
+    })
+
+    appearance:CreateDropdown({
+        Name = "Tracer Origin",
+        Flag = "Universal_ESP_TracerOrigin",
+        Options = {"Bottom", "Center", "Mouse"},
+        CurrentOption = "Bottom",
+        Callback = function(value)
+            if type(value) == "table" then value = value[1] end
+            ESP.TracerOrigin = tostring(value or "Bottom")
+        end,
+    })
+
+    appearance:CreateSlider({
+        Name = "Tracer Thickness",
+        Flag = "Universal_ESP_TracerThickness",
+        Range = {1, 4},
+        Increment = 0.5,
+        CurrentValue = 1,
+        Callback = function(value) ESP.TracerThickness = tonumber(value) or 1 end,
+    })
+
+    if not ESP.DrawingSupported then
+        appearance:CreateParagraph({
+            Title = "Drawing API unavailable",
+            Content = "Skeleton, bounding boxes and tracers require an executor with Drawing.new support. Name, distance, health bars and chams still work.",
+        })
+    end
+
+    local colorDefinitions = {
+        {"Name", "Name Text", ESP.Colors.Name},
+        {"Outline", "Name Outline", ESP.Colors.Outline},
+        {"HealthLow", "Health Low", ESP.Colors.HealthLow},
+        {"HealthHigh", "Health High", ESP.Colors.HealthHigh},
+        {"ChamsHigh", "Chams High Health", ESP.Colors.ChamsHigh},
+        {"ChamsMid", "Chams Mid Health", ESP.Colors.ChamsMid},
+        {"ChamsLow", "Chams Low Health", ESP.Colors.ChamsLow},
+        {"ChamsOutline", "Chams Outline", ESP.Colors.ChamsOutline},
+        {"Skeleton", "Skeleton", ESP.Colors.Skeleton},
+        {"Box", "Bounding Box", ESP.Colors.Box},
+        {"Tracer", "Tracer", ESP.Colors.Tracer},
+    }
+    for _, definition in ipairs(colorDefinitions) do
+        colors:CreateColorPicker({
+            Name = definition[2],
+            Flag = "Universal_ESP_Color_" .. definition[1],
+            Color = definition[3],
+            Callback = function(color)
+                ESP.Colors[definition[1]] = color
+            end,
+        })
+    end
+
+    refreshAll()
+
+    window:TrackConnection(Players.PlayerAdded:Connect(function(plr)
+        if plr ~= Players.LocalPlayer then ensureData(plr) end
+    end))
+    window:TrackConnection(Players.PlayerRemoving:Connect(function(plr)
+        destroyPlayerData(plr)
+    end))
+    window:TrackConnection(RunService.RenderStepped:Connect(function()
+        for plr, data in pairs(ESP.PlayerData) do
+            updatePlayer(plr, data)
+        end
+    end))
+
+    window:AddCleanup(function()
+        for plr in pairs(ESP.PlayerData) do
+            destroyPlayerData(plr)
+        end
+        window._universalESP = nil
+    end)
+end
+
+local function buildUniversalUtilitiesPage(window, tab)
+    local scriptSection = tab:CreateSection({
+        Name = "Script Utilities",
+        Description = "Common external utility loaders.",
+        Side = "Left",
+    })
+    local sessionSection = tab:CreateSection({
+        Name = "Session Utilities",
+        Description = "Generic quality-of-life tools shared by every module.",
+        Side = "Left",
+    })
+    local playerSection = tab:CreateSection({
+        Name = "Player Utilities",
+        Description = "Cursor, shift-lock and player tools moved out of game-specific modules.",
+        Side = "Right",
+    })
+    local teleportSection = tab:CreateSection({
+        Name = "Player Teleport",
+        Description = "Teleport your local character beside another player.",
+        Side = "Right",
+    })
+
+    local function runRemoteScript(name, url)
+        task.spawn(function()
+            local ok, result = pcall(function()
+                local source = game:HttpGet(url, true)
+                local chunk, compileError = loadstring(source)
+                if not chunk then error(compileError or "compile failed") end
+                return chunk()
+            end)
+            if ok then
+                universalNotify(window, name, name .. " loaded.", "Success")
+            else
+                universalNotify(window, name, "Load failed: " .. tostring(result), "Error")
+            end
+        end)
+    end
+
+    scriptSection:CreateButton({
+        Name = "Load Infinite Yield",
+        Info = "Loads the official EdgeIY Infinite Yield source.",
+        Callback = function()
+            runRemoteScript(
+                "Infinite Yield",
+                "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
+            )
+        end,
+    })
+
+    scriptSection:CreateButton({
+        Name = "Load Cobalt",
+        Info = "Loads the latest Cobalt release from the official GitLab release permalink.",
+        Callback = function()
+            runRemoteScript(
+                "Cobalt",
+                "https://gitlab.com/upio/cobalt/-/releases/permalink/latest/downloads/Cobalt.luau"
+            )
+        end,
+    })
+
+    local antiAfkEnabled = false
+    local virtualUser
+    pcall(function() virtualUser = game:GetService("VirtualUser") end)
+
+    sessionSection:CreateToggle({
+        Name = "Anti-AFK",
+        Info = "Generic Roblox Idled anti-AFK. Tower keeps its separate game-specific anti-AFK in Character.",
+        Flag = "Universal_AntiAFK",
+        CurrentValue = false,
+        Callback = function(value)
+            antiAfkEnabled = value == true
+        end,
+    })
+
+    if Players.LocalPlayer then
+        window:TrackConnection(Players.LocalPlayer.Idled:Connect(function()
+            if not antiAfkEnabled or not virtualUser then return end
+            pcall(function()
+                virtualUser:CaptureController()
+                virtualUser:ClickButton2(Vector2.new(0,0))
+            end)
+        end))
+    end
+
+    sessionSection:CreateButton({
+        Name = "Rejoin Server",
+        Callback = function()
+            pcall(function()
+                game:GetService("TeleportService"):TeleportToPlaceInstance(
+                    game.PlaceId,
+                    game.JobId,
+                    Players.LocalPlayer
+                )
+            end)
+        end,
+    })
+
+    sessionSection:CreateButton({
+        Name = "Copy Job ID",
+        Callback = function()
+            local copied = false
+            if type(setclipboard) == "function" then
+                copied = pcall(setclipboard, tostring(game.JobId))
+            elseif type(toclipboard) == "function" then
+                copied = pcall(toclipboard, tostring(game.JobId))
+            end
+            universalNotify(
+                window,
+                "Job ID",
+                copied and "Copied current JobId." or ("JobId: " .. tostring(game.JobId)),
+                copied and "Success" or "Information"
+            )
+        end,
+    })
+
+    local cursorState = {
+        Enabled = false,
+        KeyName = "T",
+        PreviousBehavior = UserInputService.MouseBehavior,
+        PreviousIcon = UserInputService.MouseIconEnabled,
+        RenderName = "VitalityUniversalCursor_" .. HttpService:GenerateGUID(false),
+    }
+
+    local function setCursorUnlocked(enabled)
+        cursorState.Enabled = enabled == true
+        pcall(function() RunService:UnbindFromRenderStep(cursorState.RenderName) end)
+
+        if cursorState.Enabled then
+            cursorState.PreviousBehavior = UserInputService.MouseBehavior
+            cursorState.PreviousIcon = UserInputService.MouseIconEnabled
+
+            pcall(function()
+                RunService:BindToRenderStep(
+                    cursorState.RenderName,
+                    Enum.RenderPriority.Camera.Value + 1,
+                    function()
+                        if cursorState.Enabled then
+                            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                            UserInputService.MouseIconEnabled = true
+                        end
+                    end
+                )
+            end)
+        else
+            pcall(function()
+                UserInputService.MouseBehavior = cursorState.PreviousBehavior
+                UserInputService.MouseIconEnabled = cursorState.PreviousIcon
+            end)
+        end
+    end
+
+    local cursorToggle = playerSection:CreateToggle({
+        Name = "Unlock Cursor",
+        Info = "Keeps the cursor free until toggled off. The hotkey below can be changed.",
+        Flag = "Universal_UnlockCursor",
+        CurrentValue = false,
+        Callback = function(value) setCursorUnlocked(value) end,
+    })
+
+    playerSection:CreateKeybind({
+        Name = "Unlock Cursor Hotkey",
+        Info = "Hotkey used to toggle Unlock Cursor.",
+        Flag = "Universal_UnlockCursorHotkey",
+        CurrentKeybind = "T",
+        Callback = function(keyName)
+            cursorState.KeyName = tostring(keyName or "T")
+        end,
+    })
+
+    local contextActionService = game:GetService("ContextActionService")
+    local shiftlockAction = "VitalityUniversalNoShift_" .. HttpService:GenerateGUID(false)
+    local noShiftlock = false
+
+    local function applyNoShiftlock(enabled)
+        noShiftlock = enabled == true
+        pcall(function() contextActionService:UnbindAction(shiftlockAction) end)
+
+        if noShiftlock then
+            contextActionService:BindActionAtPriority(
+                shiftlockAction,
+                function(_, inputState)
+                    if inputState == Enum.UserInputState.Begin
+                        or inputState == Enum.UserInputState.Change
+                        or inputState == Enum.UserInputState.End then
+                        return Enum.ContextActionResult.Sink
+                    end
+                    return Enum.ContextActionResult.Pass
+                end,
+                false,
+                Enum.ContextActionPriority.High.Value + 100,
+                Enum.KeyCode.LeftShift,
+                Enum.KeyCode.RightShift
+            )
+        end
+    end
+
+    playerSection:CreateToggle({
+        Name = "No Shiftlock",
+        Info = "Blocks Shift-based shiftlock and releases the mouse from center-lock while enabled.",
+        Flag = "Universal_NoShiftlock",
+        CurrentValue = false,
+        Callback = function(value) applyNoShiftlock(value) end,
+    })
+
+    window:TrackConnection(UserInputService.InputBegan:Connect(function(input, processed)
+        if processed or UserInputService:GetFocusedTextBox() or window._capturingKeybind then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode.Name == cursorState.KeyName and cursorToggle and type(cursorToggle.Set) == "function" then
+            cursorToggle:Set(not cursorState.Enabled)
+        end
+    end))
+
+    window:TrackConnection(RunService.RenderStepped:Connect(function()
+        if noShiftlock and not cursorState.Enabled then
+            pcall(function()
+                if UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then
+                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                end
+                local humanoid = universalCurrentHumanoid()
+                if humanoid then humanoid.AutoRotate = true end
+            end)
+        end
+    end))
+
+    local selectedPlayer
+    local playerDropdown
+
+    local function playerNames()
+        local names = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Players.LocalPlayer then table.insert(names, plr.Name) end
+        end
+        table.sort(names)
+        if #names == 0 then table.insert(names, "No players") end
+        return names
+    end
+
+    local function setSelected(value)
+        if type(value) == "table" then value = value[1] end
+        selectedPlayer = Players:FindFirstChild(tostring(value or ""))
+    end
+
+    playerDropdown = teleportSection:CreateDropdown({
+        Name = "Select Player",
+        Flag = "Universal_PlayerTeleportTarget",
+        Options = playerNames(),
+        CurrentOption = playerNames()[1],
+        Callback = setSelected,
+    })
+    setSelected(playerDropdown and playerDropdown.Get and playerDropdown:Get() or nil)
+
+    local function refreshPlayers()
+        local names = playerNames()
+        if playerDropdown and type(playerDropdown.Refresh) == "function" then
+            pcall(function() playerDropdown:Refresh(names, true) end)
+        end
+        if not selectedPlayer or selectedPlayer.Parent ~= Players then
+            selectedPlayer = Players:FindFirstChild(names[1])
+        end
+    end
+
+    teleportSection:CreateButton({
+        Name = "Teleport To Player",
+        Callback = function()
+            local target = selectedPlayer
+            local targetRoot = target and target.Character and (
+                target.Character:FindFirstChild("HumanoidRootPart")
+                or target.Character:FindFirstChild("UpperTorso")
+                or target.Character:FindFirstChild("Torso")
+            )
+            local character = Players.LocalPlayer and Players.LocalPlayer.Character
+            if not targetRoot or not character then
+                universalNotify(window, "Player Teleport", "Selected player is unavailable.", "Warning")
+                return
+            end
+
+            pcall(function()
+                character:PivotTo(targetRoot.CFrame * CFrame.new(0, 0, 3))
+            end)
+        end,
+    })
+
+    window:TrackConnection(Players.PlayerAdded:Connect(function() task.defer(refreshPlayers) end))
+    window:TrackConnection(Players.PlayerRemoving:Connect(function(plr)
+        if selectedPlayer == plr then selectedPlayer = nil end
+        task.defer(refreshPlayers)
+    end))
+
+    window:AddCleanup(function()
+        antiAfkEnabled = false
+        setCursorUnlocked(false)
+        pcall(function() contextActionService:UnbindAction(shiftlockAction) end)
+    end)
+end
+
 function WindowMethods:_ensureUniversalTabDropdown()
     if self.UniversalTabDropdown and self.UniversalTabDropdown._destroyed ~= true then
         return self.UniversalTabDropdown
@@ -4842,43 +5969,37 @@ function WindowMethods:_ensureUniversalTabDropdown()
         LayoutOrder = -1000,
     })
 
-    local definitions = {
-        {
-            Name = "Player",
-            Icon = "user",
-            Description = "Universal player controls.",
-        },
-        {
-            Name = "Visuals",
-            Icon = "eye",
-            Description = "Universal visual controls.",
-        },
-        {
-            Name = "Utilities",
-            Icon = "settings",
-            Description = "Universal utility controls.",
-        },
-    }
+    local playerTab = universal:CreateTab("Player", "user")
+    buildUniversalPlayerPage(self, playerTab)
 
-    for _, definition in ipairs(definitions) do
-        local tab = universal:CreateTab(definition.Name, definition.Icon)
-        local section = tab:CreateSection({
-            Name = definition.Name,
-            Description = definition.Description,
-            Side = "Left",
-        })
+    local visualsTab = universal:CreateTab("Visuals", "eye")
+    buildUniversalVisualsPage(self, visualsTab)
 
-        section:CreateToggle({
-            Name = "Blank toggle",
-            Info = "Placeholder control for the Universal tab.",
-            CurrentValue = false,
-            Callback = function() end,
-        })
-    end
+    local utilitiesTab = universal:CreateTab("Utilities", "settings")
+    buildUniversalUtilitiesPage(self, utilitiesTab)
+
+    -- Controls read saved values when they are constructed, but ordinary control
+    -- constructors intentionally do not fire callbacks. Re-apply only Universal
+    -- flags once so saved ON states actually restore their backing feature state.
+    task.defer(function()
+        if self._destroyed then return end
+        for flag, object in pairs(self.FlagObjects or {}) do
+            if tostring(flag):match("^Universal_")
+                and type(object) == "table"
+                and type(object.Get) == "function"
+                and type(object.Set) == "function" then
+
+                pcall(function()
+                    object:Set(object:Get(), true)
+                end)
+            end
+        end
+    end)
 
     self.UniversalTabDropdown = universal
     return universal
 end
+
 
 -- Development/hot-reload support: tabs can now be removed cleanly without
 -- destroying the main Vitality window. This is also safe for ordinary tabs.
