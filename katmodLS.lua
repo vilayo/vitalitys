@@ -1,5 +1,5 @@
 --[[
-    Vitality's Hub / KAT / 1.4.0-LS
+    Vitality's Hub / KAT / 1.5.0-LS
 
     ============================================================
     KAT
@@ -9,24 +9,27 @@
     - Toggle
     - Head / Torso / Random
     - Hit Chance 0-100%
-    - Whole Screen
+    - Use FOV toggle / whole-screen fallback
     - Radius
-    - FOV Circle
+    - FOV Circle (live runtime toggle)
     - Independent Wall Check
 
     AIMBOT
     - Toggle arms feature
     - ONLY aims while Right Mouse Button is held
     - Independent RenderStepped loop
-    - FOV Circle
+    - Use FOV toggle
+    - FOV Circle (live runtime toggle)
     - FOV Radius
+    - Sticky target retention
     - Smoothness
     - Independent Wall Check
 
     TRIGGERBOT
     - No target variation
-    - Target detection inside configurable FOV/radius
-    - FOV Circle
+    - Direct cursor/crosshair target detection
+    - Optional configurable FOV/radius assist
+    - FOV Circle (live runtime toggle)
     - Independent Wall Check
     - Revolver trigger
     - Revolver auto reload
@@ -75,7 +78,7 @@ return function(context)
     ----------------------------------------------------------------
 
     local KEY =
-        "__VITALITY_KAT_MODULE_BUILD_STATE_V14"
+        "__VITALITY_KAT_MODULE_BUILD_STATE_V15"
 
     local ROUTER_KEY =
         "__VITALITY_KAT_COMBAT_ROUTER_V14"
@@ -86,6 +89,27 @@ return function(context)
 
     local previous =
         rawget(_G, KEY)
+
+    local legacyPrevious =
+        rawget(
+            _G,
+            "__VITALITY_KAT_MODULE_BUILD_STATE_V14"
+        )
+
+    if type(legacyPrevious) == "table"
+        and legacyPrevious ~= previous
+        and type(legacyPrevious.Restore) == "function" then
+
+        pcall(
+            legacyPrevious.Restore
+        )
+
+        rawset(
+            _G,
+            "__VITALITY_KAT_MODULE_BUILD_STATE_V14",
+            nil
+        )
+    end
 
     if type(previous) == "table"
         and previous.Window == Window
@@ -171,6 +195,14 @@ return function(context)
         ESPLOSRange = 2500,
         ESPLOSInterval = 0.10,
 
+        ------------------------------------------------------------
+        -- Combat targeting
+        ------------------------------------------------------------
+
+        AimbotRetainMultiplier = 1.22,
+        TriggerRayLength = 5000,
+        VisibilityPassLimit = 8,
+
         RedFill =
             Color3.fromRGB(
                 240,
@@ -243,7 +275,9 @@ return function(context)
 
         SilentAimEnabled = false,
 
+        -- Kept for backwards compatibility with older config logic.
         SilentAimWholeScreen = true,
+        SilentAimUseFOV = false,
         SilentAimRadius = 175,
 
         SilentAimTarget = "Head",
@@ -260,12 +294,15 @@ return function(context)
         AimbotEnabled = false,
 
         AimbotFOV = 300,
+        AimbotUseFOV = true,
 
         AimbotSmoothness = 0.28,
 
         AimbotWallCheck = true,
 
         AimbotShowFOV = true,
+        AimbotLockedPlayer = nil,
+        AimbotLockedPart = nil,
 
         ----------------------------------------------------------------
         -- TRIGGERBOT
@@ -274,6 +311,7 @@ return function(context)
         TriggerbotEnabled = false,
 
         TriggerbotRadius = 45,
+        TriggerbotUseFOV = true,
 
         TriggerbotWallCheck = true,
 
@@ -407,6 +445,12 @@ return function(context)
 
                 state.RMBHeld =
                     false
+
+                state.AimbotLockedPlayer =
+                    nil
+
+                state.AimbotLockedPart =
+                    nil
             end
         end)
     )
@@ -782,13 +826,27 @@ return function(context)
             )
         end
 
-        return Input:
-            GetMouseLocation()
+        return Vector2.new(
+            Mouse.X,
+            Mouse.Y
+        )
     end
 
     ----------------------------------------------------------------
     -- VISIBILITY / WALL CHECK
     ----------------------------------------------------------------
+
+    local function shouldSkipVisibilityHit(instance)
+
+        if not instance
+            or not instance:IsA("BasePart") then
+
+            return false
+        end
+
+        return instance.Transparency >= 0.95
+            and instance.CanCollide == false
+    end
 
     local function hasVisibility(
         origin,
@@ -796,7 +854,9 @@ return function(context)
         extraIgnore
     )
 
-        if not part then
+        if not part
+            or not part.Parent then
+
             return false
         end
 
@@ -815,9 +875,7 @@ return function(context)
             == "table" then
 
             for _, object
-                in ipairs(
-                    extraIgnore
-                ) do
+                in ipairs(extraIgnore) do
 
                 if typeof(object)
                     == "Instance" then
@@ -838,32 +896,87 @@ return function(context)
             )
         end
 
+        -- Excluding the target character prevents its own accessories /
+        -- limbs from incorrectly failing a wall check. World geometry
+        -- between the camera/ray origin and target still blocks normally.
+        local targetCharacter =
+            part:FindFirstAncestorOfClass(
+                "Model"
+            )
+
+        if targetCharacter then
+
+            table.insert(
+                ignore,
+                targetCharacter
+            )
+        end
+
         params.FilterDescendantsInstances =
             ignore
 
-        local result =
-            Workspace:Raycast(
+        local direction =
+            part.Position - origin
 
-                origin,
-
-                part.Position
-                - origin,
-
-                params
-
-            )
-
-        if not result then
+        if direction.Magnitude <= 0.001 then
             return true
         end
 
-        return
-            result.Instance
+        local currentOrigin =
+            origin
 
-            and result.Instance:
-                IsDescendantOf(
-                    part.Parent
+        for _ = 1,
+            Config.VisibilityPassLimit do
+
+            local remaining =
+                part.Position - currentOrigin
+
+            if remaining.Magnitude <= 0.01 then
+                return true
+            end
+
+            local result =
+                Workspace:Raycast(
+                    currentOrigin,
+                    remaining,
+                    params
                 )
+
+            if not result then
+                return true
+            end
+
+            local hit =
+                result.Instance
+
+            if targetCharacter
+                and hit
+                and hit:IsDescendantOf(
+                    targetCharacter
+                ) then
+
+                return true
+            end
+
+            if shouldSkipVisibilityHit(hit) then
+
+                table.insert(
+                    ignore,
+                    hit
+                )
+
+                params.FilterDescendantsInstances =
+                    ignore
+
+                currentOrigin =
+                    result.Position
+                    + remaining.Unit * 0.01
+            else
+                return false
+            end
+        end
+
+        return false
     end
 
     local function passesSilentWallCheck(
@@ -987,65 +1100,10 @@ return function(context)
         colour
     )
 
-        ------------------------------------------------------------
-        -- Drawing API:
-        -- ideal because it does not participate in Roblox GUI input.
-        ------------------------------------------------------------
-
-        if type(Drawing)
-            == "table"
-
-            and type(Drawing.new)
-                == "function" then
-
-            local ok,
-                drawing =
-
-                pcall(function()
-
-                    local circle =
-                        Drawing.new(
-                            "Circle"
-                        )
-
-                    circle.Visible =
-                        false
-
-                    circle.Radius =
-                        100
-
-                    circle.Thickness =
-                        1.5
-
-                    circle.NumSides =
-                        72
-
-                    circle.Filled =
-                        false
-
-                    circle.Transparency =
-                        0.9
-
-                    circle.Color =
-                        colour
-
-                    return circle
-                end)
-
-            if ok
-                and drawing then
-
-                return {
-                    Type = "Drawing",
-                    Object = drawing,
-                }
-            end
-        end
-
-        ------------------------------------------------------------
-        -- Non-interactive GUI fallback
-        ------------------------------------------------------------
-
+        -- Native GUI circles are used deliberately here. They update
+        -- reliably when toggled at runtime across executors, unlike some
+        -- Drawing implementations which only honor the initial Visible
+        -- state. The frames are non-interactive and sit above the hub.
         local screen =
             ensureFOVFallbackGUI()
 
@@ -1161,36 +1219,21 @@ return function(context)
         if not descriptor
             or not descriptor.Object then
 
-            return
-        end
-
-        if descriptor.Type
-            == "Drawing" then
-
-            pcall(function()
-
-                descriptor.Object.Position =
-                    position
-
-                descriptor.Object.Radius =
-                    radius
-
-                descriptor.Object.Visible =
-                    visible
-            end)
-
-            return
+            return false
         end
 
         local frame =
             descriptor.Object
 
         if not frame.Parent then
-            return
+            return false
         end
 
         local diameter =
-            radius * 2
+            math.max(
+                2,
+                radius * 2
+            )
 
         frame.Size =
             UDim2.fromOffset(
@@ -1205,7 +1248,43 @@ return function(context)
             )
 
         frame.Visible =
-            visible
+            visible == true
+
+        return true
+    end
+
+    local function refreshFOVVisuals()
+
+        if not state.Alive then
+            return
+        end
+
+        local origin =
+            getAimScreenPosition()
+
+        updateSingleFOV(
+            state.SilentFOVObject,
+            origin,
+            state.SilentAimRadius,
+            state.SilentAimEnabled
+                and state.SilentAimShowFOV
+        )
+
+        updateSingleFOV(
+            state.AimbotFOVObject,
+            origin,
+            state.AimbotFOV,
+            state.AimbotEnabled
+                and state.AimbotShowFOV
+        )
+
+        updateSingleFOV(
+            state.TriggerFOVObject,
+            origin,
+            state.TriggerbotRadius,
+            state.TriggerbotEnabled
+                and state.TriggerbotShowFOV
+        )
     end
 
     ----------------------------------------------------------------
@@ -1218,48 +1297,7 @@ return function(context)
         RunService.RenderStepped:
         Connect(function()
 
-            if not state.Alive then
-                return
-            end
-
-            local origin =
-                getAimScreenPosition()
-
-            updateSingleFOV(
-
-                state.SilentFOVObject,
-
-                origin,
-
-                state.SilentAimRadius,
-
-                state.SilentAimEnabled
-                    and state.SilentAimShowFOV
-            )
-
-            updateSingleFOV(
-
-                state.AimbotFOVObject,
-
-                origin,
-
-                state.AimbotFOV,
-
-                state.AimbotEnabled
-                    and state.AimbotShowFOV
-            )
-
-            updateSingleFOV(
-
-                state.TriggerFOVObject,
-
-                origin,
-
-                state.TriggerbotRadius,
-
-                state.TriggerbotEnabled
-                    and state.TriggerbotShowFOV
-            )
+            refreshFOVVisuals()
 
         end)
     )
@@ -1270,6 +1308,117 @@ return function(context)
     ----------------------------------------------------------------
     ----------------------------------------------------------------
 
+    local function getAimbotPart(player)
+
+        if not player
+            or not player.Character then
+
+            return nil
+        end
+
+        return getHead(
+            player.Character
+        )
+            or getTorso(
+                player.Character
+            )
+    end
+
+    local function getScreenDistanceSquared(
+        camera,
+        part,
+        origin
+    )
+
+        if not camera
+            or not part then
+
+            return nil
+        end
+
+        local point,
+            onScreen =
+
+            camera:
+            WorldToViewportPoint(
+                part.Position
+            )
+
+        if not onScreen
+            or point.Z <= 0 then
+
+            return nil
+        end
+
+        local dx =
+            point.X - origin.X
+
+        local dy =
+            point.Y - origin.Y
+
+        return dx * dx
+            + dy * dy
+    end
+
+    local function aimbotCandidateValid(
+        player,
+        part,
+        retain
+    )
+
+        if not validPlayer(player)
+            or not part
+            or not part.Parent then
+
+            return false
+        end
+
+        if not passesAimbotWallCheck(
+            part
+        ) then
+
+            return false
+        end
+
+        local camera =
+            Workspace.CurrentCamera
+
+        if not camera then
+            return false
+        end
+
+        local distance =
+            getScreenDistanceSquared(
+                camera,
+                part,
+                getAimScreenPosition()
+            )
+
+        if not distance then
+            return false
+        end
+
+        if state.AimbotUseFOV then
+
+            local multiplier =
+                retain
+                and Config.AimbotRetainMultiplier
+                or 1
+
+            local radius =
+                state.AimbotFOV
+                * multiplier
+
+            if distance
+                > radius * radius then
+
+                return false
+            end
+        end
+
+        return true
+    end
+
     local function getClosestAimbotTarget()
 
         local camera =
@@ -1277,6 +1426,44 @@ return function(context)
 
         if not camera then
             return nil
+        end
+
+        ------------------------------------------------------------
+        -- Sticky target retention. A currently tracked target gets a
+        -- small FOV hysteresis margin so lateral movement does not make
+        -- the aimbot constantly jump to another player. Wall check is
+        -- still enforced every frame.
+        ------------------------------------------------------------
+
+        local lockedPlayer =
+            state.AimbotLockedPlayer
+
+        if lockedPlayer then
+
+            local lockedPart =
+                getAimbotPart(
+                    lockedPlayer
+                )
+
+            if aimbotCandidateValid(
+                lockedPlayer,
+                lockedPart,
+                true
+            ) then
+
+                state.AimbotLockedPart =
+                    lockedPart
+
+                return
+                    lockedPlayer,
+                    lockedPart
+            end
+
+            state.AimbotLockedPlayer =
+                nil
+
+            state.AimbotLockedPart =
+                nil
         end
 
         local aimOrigin =
@@ -1289,8 +1476,12 @@ return function(context)
             nil
 
         local bestDistance =
-            state.AimbotFOV
-            * state.AimbotFOV
+            state.AimbotUseFOV
+            and (
+                state.AimbotFOV
+                * state.AimbotFOV
+            )
+            or math.huge
 
         for _, player
             in ipairs(
@@ -1300,12 +1491,8 @@ return function(context)
             if validPlayer(player) then
 
                 local part =
-                    getHead(
-                        player.Character
-                    )
-
-                    or getTorso(
-                        player.Character
+                    getAimbotPart(
+                        player
                     )
 
                 if part
@@ -1313,45 +1500,34 @@ return function(context)
                         part
                     ) then
 
-                    local point,
-                        onScreen =
-
-                        camera:
-                        WorldToViewportPoint(
-                            part.Position
+                    local distance =
+                        getScreenDistanceSquared(
+                            camera,
+                            part,
+                            aimOrigin
                         )
 
-                    if onScreen
-                        and point.Z > 0 then
+                    if distance
+                        and distance <= bestDistance then
 
-                        local dx =
-                            point.X
-                            - aimOrigin.X
+                        bestDistance =
+                            distance
 
-                        local dy =
-                            point.Y
-                            - aimOrigin.Y
+                        bestPlayer =
+                            player
 
-                        local distance =
-                            dx * dx
-                            + dy * dy
-
-                        if distance
-                            <= bestDistance then
-
-                            bestDistance =
-                                distance
-
-                            bestPlayer =
-                                player
-
-                            bestPart =
-                                part
-                        end
+                        bestPart =
+                            part
                     end
                 end
             end
         end
+
+        state.AimbotLockedPlayer =
+            bestPlayer
+
+        state.AimbotLockedPart =
+            bestPart
 
         return
             bestPlayer,
@@ -1369,7 +1545,140 @@ return function(context)
     ----------------------------------------------------------------
     ----------------------------------------------------------------
 
+    local function playerFromHit(instance)
+
+        local current =
+            instance
+
+        while current
+            and current ~= Workspace do
+
+            if current:IsA("Model") then
+
+                local player =
+                    Players:
+                    GetPlayerFromCharacter(
+                        current
+                    )
+
+                if player then
+                    return player
+                end
+            end
+
+            current =
+                current.Parent
+        end
+
+        return nil
+    end
+
+    local function getDirectTriggerTarget()
+
+        local camera =
+            Workspace.CurrentCamera
+
+        if not camera then
+            return nil
+        end
+
+        local origin =
+            getAimScreenPosition()
+
+        local unitRay =
+            camera:
+            ViewportPointToRay(
+                origin.X,
+                origin.Y
+            )
+
+        local params =
+            RaycastParams.new()
+
+        params.FilterType =
+            Enum.RaycastFilterType.Exclude
+
+        params.IgnoreWater =
+            true
+
+        params.FilterDescendantsInstances =
+            LocalPlayer.Character
+            and {
+                LocalPlayer.Character,
+            }
+            or {}
+
+        local result =
+            Workspace:Raycast(
+                unitRay.Origin,
+                unitRay.Direction
+                    * Config.TriggerRayLength,
+                params
+            )
+
+        if not result then
+            return nil
+        end
+
+        local player =
+            playerFromHit(
+                result.Instance
+            )
+
+        if not player
+            or not validPlayer(player) then
+
+            return nil
+        end
+
+        local part =
+            getTriggerPart(
+                player.Character
+            )
+
+        if not part then
+            return nil
+        end
+
+        -- A direct viewport ray already proves the target is the first
+        -- world hit under the cursor/crosshair, so do not perform a
+        -- second center-mass wall check here. That second check could
+        -- incorrectly reject a visible head/limb when the torso is
+        -- partially behind cover. The radius-assist path below still
+        -- uses the independent Triggerbot wall check.
+
+        return player,
+            part
+    end
+
     local function getClosestTriggerTarget()
+
+        ------------------------------------------------------------
+        -- First choice: the cursor / center crosshair is directly on
+        -- a living player. This makes Triggerbot behave like a real
+        -- triggerbot instead of only a proximity detector.
+        ------------------------------------------------------------
+
+        local directPlayer,
+            directPart =
+
+            getDirectTriggerTarget()
+
+        if directPlayer
+            and directPart then
+
+            return directPlayer,
+                directPart
+        end
+
+        ------------------------------------------------------------
+        -- Optional FOV assist fallback. If Use FOV is disabled, only
+        -- a direct cursor/crosshair hit can activate Triggerbot.
+        ------------------------------------------------------------
+
+        if not state.TriggerbotUseFOV then
+            return nil
+        end
 
         local camera =
             Workspace.CurrentCamera
@@ -1408,41 +1717,24 @@ return function(context)
                         part
                     ) then
 
-                    local point,
-                        onScreen =
-
-                        camera:
-                        WorldToViewportPoint(
-                            part.Position
+                    local distance =
+                        getScreenDistanceSquared(
+                            camera,
+                            part,
+                            origin
                         )
 
-                    if onScreen
-                        and point.Z > 0 then
+                    if distance
+                        and distance <= bestDistance then
 
-                        local dx =
-                            point.X
-                            - origin.X
+                        bestDistance =
+                            distance
 
-                        local dy =
-                            point.Y
-                            - origin.Y
+                        bestPlayer =
+                            player
 
-                        local distance =
-                            dx * dx
-                            + dy * dy
-
-                        if distance
-                            <= bestDistance then
-
-                            bestDistance =
-                                distance
-
-                            bestPlayer =
-                                player
-
-                            bestPart =
-                                part
-                        end
+                        bestPart =
+                            part
                     end
                 end
             end
@@ -3081,14 +3373,14 @@ return function(context)
 
         local bestDistance =
 
-            state.SilentAimWholeScreen
+            state.SilentAimUseFOV
 
-            and math.huge
-
-            or (
+            and (
                 state.SilentAimRadius
                 * state.SilentAimRadius
             )
+
+            or math.huge
 
         local bestPosition =
             nil
@@ -3597,6 +3889,95 @@ return function(context)
     end
 
     ----------------------------------------------------------------
+    -- PRIMARY INPUT HELPERS
+    --
+    -- VirtualInputManager is preferred for normal client input.
+    -- firesignal / executor mouse helpers remain as fallbacks.
+    ----------------------------------------------------------------
+
+    local function sendPrimaryInput(down)
+
+        local position =
+            getAimScreenPosition()
+
+        local ok =
+            pcall(function()
+
+                VirtualInputManager:
+                SendMouseButtonEvent(
+                    position.X,
+                    position.Y,
+                    0,
+                    down == true,
+                    game,
+                    0
+                )
+            end)
+
+        if ok then
+            return true,
+                "VirtualInput"
+        end
+
+        local executorFunction =
+            down
+            and mouse1press
+            or mouse1release
+
+        if type(executorFunction)
+            == "function" then
+
+            ok = pcall(
+                executorFunction
+            )
+
+            if ok then
+                return true,
+                    "Executor"
+            end
+        end
+
+        if type(firesignal)
+            == "function" then
+
+            ok = pcall(function()
+
+                firesignal(
+                    down
+                    and Mouse.Button1Down
+                    or Mouse.Button1Up
+                )
+            end)
+
+            if ok then
+                return true,
+                    "Signal"
+            end
+        end
+
+        return false,
+            nil
+    end
+
+    local function sendSignalPrimaryInput(down)
+
+        if type(firesignal)
+            ~= "function" then
+
+            return false
+        end
+
+        return pcall(function()
+
+            firesignal(
+                down
+                and Mouse.Button1Down
+                or Mouse.Button1Up
+            )
+        end)
+    end
+
+    ----------------------------------------------------------------
     ----------------------------------------------------------------
     -- KNIFE
     ----------------------------------------------------------------
@@ -4043,38 +4424,42 @@ return function(context)
             return false
         end
 
-        if type(firesignal)
-            ~= "function" then
-
-            return false
-        end
-
         local epoch =
             state.WeaponEpoch
 
         local weapon =
             state.Weapon
 
-        local success =
-            pcall(function()
+        local beforeFire =
+            state.LastWeaponFired
 
-                firesignal(
-                    Mouse.Button1Down
+        ------------------------------------------------------------
+        -- Keep the original KAT-compatible Mouse signal path first.
+        ------------------------------------------------------------
+
+        local pressed =
+            sendSignalPrimaryInput(
+                true
+            )
+
+        local usedSignal =
+            pressed == true
+
+        if not pressed then
+
+            pressed =
+                sendPrimaryInput(
+                    true
                 )
+        end
 
-            end)
-
-        if not success then
+        if not pressed then
             return false
         end
 
         task.wait(
             Config.RevolverPressTime
         )
-
-        ------------------------------------------------------------
-        -- Never send gun release into newly-equipped Knife.
-        ------------------------------------------------------------
 
         if state.WeaponEpoch
             == epoch
@@ -4088,24 +4473,71 @@ return function(context)
             and weapon.Parent
                 == LocalPlayer.Character then
 
-            pcall(function()
+            if usedSignal then
 
-                firesignal(
-                    Mouse.Button1Up
+                sendSignalPrimaryInput(
+                    false
                 )
+            else
 
-            end)
-
-            if type(mouse1release)
-                == "function" then
-
-                pcall(
-                    mouse1release
+                sendPrimaryInput(
+                    false
                 )
             end
         end
 
-        return true
+        ------------------------------------------------------------
+        -- Cobalt confirms normal KAT firing emits native WeaponFired.
+        -- If the original signal path did not actually reach the weapon
+        -- script, use VirtualInput/executor input as a verified fallback.
+        ------------------------------------------------------------
+
+        task.wait(
+            0.025
+        )
+
+        if usedSignal
+            and state.WeaponEpoch
+                == epoch
+
+            and state.WeaponType
+                == "Revolver"
+
+            and state.Weapon
+                == weapon
+
+            and state.LastWeaponFired
+                <= beforeFire then
+
+            local fallbackPressed =
+                sendPrimaryInput(
+                    true
+                )
+
+            if fallbackPressed then
+
+                task.wait(
+                    Config.RevolverPressTime
+                )
+
+                if state.WeaponEpoch
+                    == epoch
+
+                    and state.WeaponType
+                        == "Revolver"
+
+                    and state.Weapon
+                        == weapon then
+
+                    sendPrimaryInput(
+                        false
+                    )
+                end
+            end
+        end
+
+        return state.LastWeaponFired
+            > beforeFire
     end
 
     ----------------------------------------------------------------
@@ -4140,6 +4572,8 @@ return function(context)
                 false
             )
         end
+
+        refreshFOVVisuals()
 
         if value == true
             and not state.SilentAimEnabled then
@@ -4269,6 +4703,8 @@ return function(context)
             state.RevolverBusy =
                 false
         end
+
+        refreshFOVVisuals()
 
         if controls.Triggerbot
             and controls.Triggerbot:Get()
@@ -4618,10 +5054,16 @@ return function(context)
         state.Connections,
 
         RunService.RenderStepped:
-        Connect(function()
+        Connect(function(dt)
 
             if not state.Alive
                 or not state.AimbotEnabled then
+
+                state.AimbotLockedPlayer =
+                    nil
+
+                state.AimbotLockedPart =
+                    nil
 
                 return
             end
@@ -4633,6 +5075,13 @@ return function(context)
             ------------------------------------------------------------
 
             if not state.RMBHeld then
+
+                state.AimbotLockedPlayer =
+                    nil
+
+                state.AimbotLockedPart =
+                    nil
+
                 return
             end
 
@@ -4686,6 +5135,28 @@ return function(context)
                 point.Y
                 - aimOrigin.Y
 
+            local smooth =
+                math.clamp(
+                    state.AimbotSmoothness,
+                    0.01,
+                    1
+                )
+
+            -- Preserve the slider's 60 FPS feel while making tracking
+            -- consistent at both high and low frame rates.
+            local frameFactor =
+                math.clamp(
+                    (dt or (1 / 60)) * 60,
+                    0.25,
+                    2.5
+                )
+
+            local trackingAlpha =
+                1 - math.pow(
+                    1 - smooth,
+                    frameFactor
+                )
+
             ------------------------------------------------------------
             -- Executor mouse movement
             ------------------------------------------------------------
@@ -4698,10 +5169,10 @@ return function(context)
                     mousemoverel(
 
                         dx
-                        * state.AimbotSmoothness,
+                        * trackingAlpha,
 
                         dy
-                        * state.AimbotSmoothness
+                        * trackingAlpha
 
                     )
 
@@ -4731,7 +5202,7 @@ return function(context)
 
                     desired,
 
-                    state.AimbotSmoothness
+                    trackingAlpha
 
                 )
 
@@ -4788,6 +5259,12 @@ return function(context)
 
         state.AimbotEnabled =
             false
+
+        state.AimbotLockedPlayer =
+            nil
+
+        state.AimbotLockedPart =
+            nil
 
         state.TriggerbotEnabled =
             false
@@ -5124,30 +5601,35 @@ return function(context)
                         end,
                 })
 
-            controls.WholeScreen =
+            controls.SilentUseFOV =
 
                 silent:
                 CreateToggle({
 
                     Name =
-                        "Whole Screen",
+                        "Use FOV",
 
                     Info =
-                        "When enabled, radius no longer limits Silent Aim.",
+                        "When disabled, Silent Aim may use the whole visible screen.",
 
                     Flag =
-                        "KAT_SilentWholeScreen",
+                        "KAT_SilentUseFOV",
 
                     CurrentValue =
-                        true,
+                        false,
 
                     Callback =
                         function(value)
 
                             if state.Alive then
 
-                                state.SilentAimWholeScreen =
+                                state.SilentAimUseFOV =
                                     value == true
+
+                                state.SilentAimWholeScreen =
+                                    not state.SilentAimUseFOV
+
+                                refreshFOVVisuals()
                             end
                         end,
                 })
@@ -5190,6 +5672,8 @@ return function(context)
                                         25,
                                         600
                                     )
+
+                                refreshFOVVisuals()
                             end
                         end,
                 })
@@ -5213,6 +5697,8 @@ return function(context)
 
                             state.SilentAimShowFOV =
                                 value == true
+
+                            refreshFOVVisuals()
                         end,
                 })
 
@@ -5281,6 +5767,33 @@ return function(context)
             -- NO TARGET VARIATION HERE.
             ------------------------------------------------------------
 
+            controls.TriggerUseFOV =
+
+                trigger:
+                CreateToggle({
+
+                    Name =
+                        "Use FOV",
+
+                    Info =
+                        "When off, Triggerbot only fires when the cursor/crosshair is directly on a living player.",
+
+                    Flag =
+                        "KAT_TriggerUseFOV",
+
+                    CurrentValue =
+                        true,
+
+                    Callback =
+                        function(value)
+
+                            state.TriggerbotUseFOV =
+                                value == true
+
+                            refreshFOVVisuals()
+                        end,
+                })
+
             controls.TriggerRadius =
 
                 trigger:
@@ -5322,6 +5835,8 @@ return function(context)
                                         5,
                                         300
                                     )
+
+                                refreshFOVVisuals()
                             end
                         end,
                 })
@@ -5345,6 +5860,8 @@ return function(context)
 
                             state.TriggerbotShowFOV =
                                 value == true
+
+                            refreshFOVVisuals()
                         end,
                 })
 
@@ -5380,7 +5897,7 @@ return function(context)
                     "Weapon Automation",
 
                 Content =
-                    "Revolver: fires when a living target enters the Triggerbot FOV and automatically reloads.\nKnife: remains charged while equipped, throws when a living target enters the FOV, then automatically begins charging again.",
+                    "Revolver: fires when the cursor/crosshair is directly on a living player; Use FOV can also allow radius-based activation. Auto reload remains enabled.\nKnife: remains charged while equipped and uses the same Triggerbot targeting rules before throwing.",
             })
 
             ----------------------------------------------------------------
@@ -5420,6 +5937,17 @@ return function(context)
 
                             state.AimbotEnabled =
                                 value == true
+
+                            if not state.AimbotEnabled then
+
+                                state.AimbotLockedPlayer =
+                                    nil
+
+                                state.AimbotLockedPart =
+                                    nil
+                            end
+
+                            refreshFOVVisuals()
                         end,
                 })
 
@@ -5432,6 +5960,39 @@ return function(context)
                 Content =
                     "The toggle arms Aimbot. Aim movement only occurs while Right Mouse Button is physically held.",
             })
+
+            controls.AimbotUseFOV =
+
+                aimbot:
+                CreateToggle({
+
+                    Name =
+                        "Use FOV",
+
+                    Info =
+                        "When disabled, Aimbot can acquire any visible on-screen target. Current targets remain sticky while valid.",
+
+                    Flag =
+                        "KAT_AimbotUseFOV",
+
+                    CurrentValue =
+                        true,
+
+                    Callback =
+                        function(value)
+
+                            state.AimbotUseFOV =
+                                value == true
+
+                            state.AimbotLockedPlayer =
+                                nil
+
+                            state.AimbotLockedPart =
+                                nil
+
+                            refreshFOVVisuals()
+                        end,
+                })
 
             controls.AimbotFOV =
 
@@ -5471,6 +6032,8 @@ return function(context)
                                         25,
                                         600
                                     )
+
+                                refreshFOVVisuals()
                             end
                         end,
                 })
@@ -5494,6 +6057,8 @@ return function(context)
 
                             state.AimbotShowFOV =
                                 value == true
+
+                            refreshFOVVisuals()
                         end,
                 })
 
@@ -5920,9 +6485,12 @@ return function(context)
                     100
                 )
 
-            state.SilentAimWholeScreen =
-                controls.WholeScreen:Get()
+            state.SilentAimUseFOV =
+                controls.SilentUseFOV:Get()
                 == true
+
+            state.SilentAimWholeScreen =
+                not state.SilentAimUseFOV
 
             state.SilentAimRadius =
 
@@ -5943,6 +6511,10 @@ return function(context)
                 == true
 
             ------------------------------------------------------------
+
+            state.TriggerbotUseFOV =
+                controls.TriggerUseFOV:Get()
+                == true
 
             state.TriggerbotRadius =
 
@@ -5966,6 +6538,10 @@ return function(context)
 
             state.AimbotEnabled =
                 controls.Aimbot:Get()
+                == true
+
+            state.AimbotUseFOV =
+                controls.AimbotUseFOV:Get()
                 == true
 
             state.AimbotFOV =
@@ -6015,6 +6591,7 @@ return function(context)
                 == true
 
             refreshESPVisibility()
+            refreshFOVVisuals()
 
             ------------------------------------------------------------
             -- ENABLE SAVED COMBAT STATES
@@ -6056,7 +6633,7 @@ return function(context)
             "KAT",
 
         Content =
-            "KAT module loaded. Aimbot uses independent RMB aiming; all three combat features now have independent FOV and wall checks.",
+            "KAT 1.5 loaded. Wall checks, live FOV circles, Use FOV controls, sticky Aimbot tracking, and Triggerbot targeting are active.",
 
         Duration =
             4,
