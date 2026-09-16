@@ -12,7 +12,7 @@ local TextService = game:GetService("TextService")
 local LocalPlayer = Players.LocalPlayer
 
 local Library = {
-    Version = "2.13.2-LS",
+    Version = "2.14.0-LS",
     Flags = {},
     _openPopup = nil,
     _openPopupOwner = nil,
@@ -322,6 +322,57 @@ local function safeCallback(callback, ...)
     if not ok then
         warn("[NovaField] Callback error: " .. tostring(err))
     end
+end
+
+-- Best-effort external-link helper used by the key system. Executors differ in
+-- how (or whether) they allow opening a browser, so Vitality always copies the
+-- destination as a fallback and only treats browser launching as optional.
+local function openExternalUrl(url)
+    url = tostring(url or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if url == "" then return false, false end
+
+    local copied = false
+    for _, clipboardFn in ipairs({
+        type(setclipboard) == "function" and setclipboard or nil,
+        type(toclipboard) == "function" and toclipboard or nil,
+    }) do
+        if clipboardFn then
+            local ok = pcall(clipboardFn, url)
+            if ok then copied = true; break end
+        end
+    end
+
+    local opened = false
+    local candidates = {}
+
+    if type(getgenv) == "function" then
+        local ok, env = pcall(getgenv)
+        if ok and type(env) == "table" then
+            for _, name in ipairs({"open_url", "openurl", "openUrl"}) do
+                if type(env[name]) == "function" then
+                    table.insert(candidates, env[name])
+                end
+            end
+        end
+    end
+
+    if type(syn) == "table" and type(syn.open_url) == "function" then
+        table.insert(candidates, function(value) return syn.open_url(value) end)
+    end
+
+    for _, openFn in ipairs(candidates) do
+        local ok = pcall(openFn, url)
+        if ok then opened = true; break end
+    end
+
+    if not opened then
+        local ok = pcall(function()
+            game:GetService("GuiService"):OpenBrowserWindow(url)
+        end)
+        opened = ok
+    end
+
+    return opened, copied
 end
 
 local function roundTo(value, increment)
@@ -6085,35 +6136,80 @@ local function buildUniversalUtilitiesPage(window, tab)
         end,
     })
 
+    local contextActionService = game:GetService("ContextActionService")
+
     local cursorState = {
         Enabled = false,
         KeyName = "T",
         PreviousBehavior = UserInputService.MouseBehavior,
         PreviousIcon = UserInputService.MouseIconEnabled,
         RenderName = "VitalityUniversalCursor_" .. HttpService:GenerateGUID(false),
+        InputAction = "VitalityUniversalCursorInput_" .. HttpService:GenerateGUID(false),
     }
 
+    -- Unlock Cursor should only detach the pointer from camera-look while it is
+    -- enabled.  It must not permanently own MouseBehavior or leave Roblox's
+    -- camera controller in a forced state after the toggle is released.
     local function setCursorUnlocked(enabled)
-        cursorState.Enabled = enabled == true
-        pcall(function() RunService:UnbindFromRenderStep(cursorState.RenderName) end)
+        local shouldEnable = enabled == true
+        if cursorState.Enabled == shouldEnable then return end
+
+        cursorState.Enabled = shouldEnable
+
+        pcall(function()
+            RunService:UnbindFromRenderStep(cursorState.RenderName)
+        end)
+        pcall(function()
+            contextActionService:UnbindAction(cursorState.InputAction)
+        end)
 
         if cursorState.Enabled then
+            -- Snapshot the exact state Roblox/the game owned before Vitality
+            -- temporarily frees the pointer.  This may legitimately be Default,
+            -- LockCenter, or LockCurrentPosition depending on the game/camera.
             cursorState.PreviousBehavior = UserInputService.MouseBehavior
             cursorState.PreviousIcon = UserInputService.MouseIconEnabled
 
+            -- Consume look-delta while the free cursor is active.  This prevents
+            -- first-person/shift-lock style camera controllers from rotating just
+            -- because the user moves the now-visible pointer.
+            pcall(function()
+                contextActionService:BindActionAtPriority(
+                    cursorState.InputAction,
+                    function(_, inputState)
+                        if cursorState.Enabled
+                            and (inputState == Enum.UserInputState.Begin
+                                or inputState == Enum.UserInputState.Change
+                                or inputState == Enum.UserInputState.End) then
+                            return Enum.ContextActionResult.Sink
+                        end
+                        return Enum.ContextActionResult.Pass
+                    end,
+                    false,
+                    Enum.ContextActionPriority.High.Value + 200,
+                    Enum.UserInputType.MouseMovement
+                )
+            end)
+
+            -- Camera scripts frequently re-apply LockCenter every frame.  Run
+            -- immediately after the camera step and free only the pointer; the
+            -- temporary input sink above prevents the same mouse movement from
+            -- being interpreted as camera-look.
             pcall(function()
                 RunService:BindToRenderStep(
                     cursorState.RenderName,
                     Enum.RenderPriority.Camera.Value + 1,
                     function()
-                        if cursorState.Enabled then
-                            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-                            UserInputService.MouseIconEnabled = true
-                        end
+                        if not cursorState.Enabled then return end
+                        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                        UserInputService.MouseIconEnabled = true
                     end
                 )
             end)
         else
+            -- Hand control straight back to Roblox/the game.  Restore the state
+            -- that existed before Vitality intervened once, then stop touching it;
+            -- from this point normal camera/mouse code is free to change it again.
             pcall(function()
                 UserInputService.MouseBehavior = cursorState.PreviousBehavior
                 UserInputService.MouseIconEnabled = cursorState.PreviousIcon
@@ -6139,7 +6235,6 @@ local function buildUniversalUtilitiesPage(window, tab)
         end,
     })
 
-    local contextActionService = game:GetService("ContextActionService")
     local shiftlockAction = "VitalityUniversalNoShift_" .. HttpService:GenerateGUID(false)
     local noShiftlock = false
 
@@ -10175,15 +10270,41 @@ local function buildKeySystem(window)
     applyButtonGradient(verify)
 
 
-    local hint=makeText(card,settings.Footer or "Get a key from your community.",10,Theme.Muted,Enum.Font.Gotham)
-    hint.Position=UDim2.fromOffset(22,255); hint.Size=UDim2.new(1,-150,0,24); hint.ZIndex=402
+    local hint=makeText(card,settings.Footer or "Free access is available through the Get Key flow.",10,Theme.Muted,Enum.Font.Gotham)
+    hint.Position=UDim2.fromOffset(22,251); hint.Size=UDim2.new(1,-164,0,32); hint.TextWrapped=true; hint.ZIndex=402
     if settings.GetKeyURL or settings.GetKeyCallback then
-        local getKey=makeText(card,"Get key  ->",10,Theme.AccentVisible,Enum.Font.GothamMedium,Enum.TextXAlignment.Right)
-        getKey.Position=UDim2.new(1,-128,0,255); getKey.Size=UDim2.fromOffset(106,24); getKey.ZIndex=402; getKey.Active=true
-        getKey.InputBegan:Connect(function(input)
-            if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-            if settings.GetKeyURL and type(setclipboard)=="function" then pcall(setclipboard,settings.GetKeyURL) end
+        local getKey=create("TextButton",{
+            Parent=card,Position=UDim2.new(1,-134,0,249),Size=UDim2.fromOffset(112,32),
+            BackgroundColor3=Theme.Surface3,BorderSizePixel=0,Text=settings.GetKeyText or "Get Key",
+            TextColor3=Theme.AccentVisible,TextSize=11,Font=Enum.Font.GothamSemibold,
+            AutoButtonColor=false,ZIndex=402,
+        })
+        corner(getKey,7)
+        local getKeyStroke=stroke(getKey,Theme.AccentVisible,1,0.42)
+        getKey.MouseEnter:Connect(function()
+            window:_tween(getKey,0.12,{BackgroundColor3=Theme.AccentSoft})
+            getKeyStroke.Transparency=0.18
+        end)
+        getKey.MouseLeave:Connect(function()
+            window:_tween(getKey,0.12,{BackgroundColor3=Theme.Surface3})
+            getKeyStroke.Transparency=0.42
+        end)
+        getKey.MouseButton1Click:Connect(function()
+            local opened, copied = false, false
+            if settings.GetKeyURL then
+                opened, copied = openExternalUrl(settings.GetKeyURL)
+            end
             safeCallback(settings.GetKeyCallback, settings.GetKeyURL)
+            if settings.GetKeyURL then
+                if opened then
+                    errorText.Text = "Opening the free key page..."
+                elseif copied then
+                    errorText.Text = "Get Key link copied to clipboard."
+                else
+                    errorText.Text = "Unable to open browser. Copy the Get Key link manually."
+                end
+                setThemeRole(errorText, "TextColor3", opened and "Success" or "Information")
+            end
             window:_playSound("Click")
         end)
     end
@@ -13044,6 +13165,276 @@ function Library:CreateWindow(settings)
     task.defer(function() startStartupSequence(window) end)
     return window
 end
+
+
+-- ============================================================
+-- STANDALONE PRE-AUTH KEY PROMPT
+-- Used from Luarmor's LRM_INIT_SCRIPT, before the protected mainloader has
+-- authenticated. It intentionally does not persist entered keys: premium users
+-- can provide script_key before execution, while free/ad users paste the current
+-- temporary key each time they execute.
+-- ============================================================
+function Library:PromptForAccessKey(settings)
+    settings = type(settings) == "table" and settings or {}
+    local validator = settings.Validator
+    if type(validator) ~= "function" then
+        return nil, {Code = "VALIDATOR_MISSING", Message = "Key validator is unavailable."}
+    end
+
+    local guiName = tostring(settings.GuiName or "VitalityPreAuthKeyPrompt")
+    local existingParent
+    pcall(function() existingParent = type(gethui) == "function" and gethui() or CoreGui end)
+    if existingParent then
+        local old = existingParent:FindFirstChild(guiName)
+        if old then pcall(function() old:Destroy() end) end
+    end
+
+    local gui = create("ScreenGui", {
+        Name = guiName,
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder = 999999,
+    })
+    resolveGuiParent(gui)
+
+    local backdrop = create("Frame", {
+        Parent = gui,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(5, 5, 8),
+        BackgroundTransparency = 0.24,
+        BorderSizePixel = 0,
+        ZIndex = 1,
+    })
+
+    local card = create("Frame", {
+        Parent = backdrop,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(420, 330),
+        BackgroundColor3 = Theme.Surface,
+        BorderSizePixel = 0,
+        ZIndex = 2,
+    })
+    corner(card, 13)
+    stroke(card, Theme.Border, 1, 0.20)
+
+    local scale = create("UIScale", {Parent = card, Scale = 1})
+    local function refreshScale()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local viewport = camera.ViewportSize
+        scale.Scale = math.clamp(math.min(viewport.X / 500, viewport.Y / 420), 0.65, 1)
+    end
+    refreshScale()
+    local viewportConnection
+    if workspace.CurrentCamera then
+        viewportConnection = workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshScale)
+    end
+
+    local icon = createIcon(card, "key", "key")
+    icon.Position = UDim2.fromOffset(22, 18)
+    icon.Size = UDim2.fromOffset(22, 22)
+    icon.ZIndex = 3
+    setIconColor(icon, Theme.AccentVisible)
+
+    local brand = makeText(card, tostring(settings.Brand or "VITALITY'S HUB"), 11, Theme.Muted, Enum.Font.GothamMedium)
+    brand.Position = UDim2.fromOffset(54, 14)
+    brand.Size = UDim2.new(1, -76, 0, 30)
+    brand.ZIndex = 3
+
+    create("Frame", {
+        Parent = card,
+        Position = UDim2.fromOffset(20, 52),
+        Size = UDim2.new(1, -40, 0, 1),
+        BackgroundColor3 = Theme.BorderSoft,
+        BorderSizePixel = 0,
+        ZIndex = 3,
+    })
+
+    local title = makeText(card, tostring(settings.Title or "Access Required"), 18, Theme.Text, Enum.Font.GothamSemibold)
+    title.Position = UDim2.fromOffset(24, 70)
+    title.Size = UDim2.new(1, -48, 0, 28)
+    title.ZIndex = 3
+
+    local subtitle = makeText(card,
+        tostring(settings.Subtitle or "Premium users can enter their key. Free users can get a temporary key through ads."),
+        11, Theme.Muted, Enum.Font.Gotham)
+    subtitle.Position = UDim2.fromOffset(24, 99)
+    subtitle.Size = UDim2.new(1, -48, 0, 40)
+    subtitle.TextWrapped = true
+    subtitle.ZIndex = 3
+
+    local box = create("TextBox", {
+        Parent = card,
+        Position = UDim2.fromOffset(24, 151),
+        Size = UDim2.new(1, -48, 0, 42),
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel = 0,
+        PlaceholderText = tostring(settings.PlaceholderText or "Enter your Vitality key..."),
+        PlaceholderColor3 = Theme.Muted,
+        Text = "",
+        TextColor3 = Theme.Text,
+        TextSize = 12,
+        Font = Enum.Font.Gotham,
+        ClearTextOnFocus = false,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 3,
+    })
+    corner(box, 8)
+    local boxStroke = stroke(box, Theme.Border, 1, 0.22)
+    padding(box, 12, 12, 0, 0)
+
+    local status = makeText(card, tostring(settings.InitialMessage or ""), 10, Theme.Muted, Enum.Font.Gotham)
+    status.Position = UDim2.fromOffset(24, 198)
+    status.Size = UDim2.new(1, -48, 0, 28)
+    status.TextWrapped = true
+    status.ZIndex = 3
+
+    local verify = create("TextButton", {
+        Parent = card,
+        Position = UDim2.fromOffset(24, 236),
+        Size = UDim2.new(0.62, -28, 0, 42),
+        BackgroundColor3 = Theme.Button,
+        BorderSizePixel = 0,
+        Text = tostring(settings.VerifyText or "Verify Key"),
+        TextColor3 = Theme.ButtonText,
+        TextSize = 12,
+        Font = Enum.Font.GothamSemibold,
+        AutoButtonColor = false,
+        ZIndex = 3,
+    })
+    corner(verify, 8)
+    stroke(verify, Theme.ButtonOutline, 1, 0.20)
+
+    local getKey = create("TextButton", {
+        Parent = card,
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -24, 0, 236),
+        Size = UDim2.new(0.38, -4, 0, 42),
+        BackgroundColor3 = Theme.Surface3,
+        BorderSizePixel = 0,
+        Text = tostring(settings.GetKeyText or "Get Key"),
+        TextColor3 = Theme.AccentVisible,
+        TextSize = 12,
+        Font = Enum.Font.GothamSemibold,
+        AutoButtonColor = false,
+        ZIndex = 3,
+    })
+    corner(getKey, 8)
+    local getKeyStroke = stroke(getKey, Theme.AccentVisible, 1, 0.34)
+
+    local footer = makeText(card,
+        tostring(settings.Footer or "Free keys are temporary. Premium keys can be supplied before execution."),
+        10, Theme.Muted, Enum.Font.Gotham)
+    footer.Position = UDim2.fromOffset(24, 289)
+    footer.Size = UDim2.new(1, -48, 0, 24)
+    footer.TextWrapped = true
+    footer.ZIndex = 3
+
+    local acceptedKey = nil
+    local acceptedInfo = nil
+    local verifying = false
+
+    local function setStatus(message, role)
+        status.Text = tostring(message or "")
+        local color = Theme[role or "Muted"] or Theme.Muted
+        status.TextColor3 = color
+        boxStroke.Color = role == "Danger" and Theme.Danger
+            or role == "Success" and Theme.Success
+            or Theme.Border
+    end
+
+    local function trim(value)
+        return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    local function verifyCandidate()
+        if verifying or acceptedKey then return end
+        local candidate = trim(box.Text)
+        if candidate == "" then
+            setStatus("Enter a key to continue.", "Danger")
+            return
+        end
+
+        verifying = true
+        verify.Active = false
+        verify.Text = "Checking..."
+        setStatus("Verifying with Luarmor...", "Information")
+
+        task.spawn(function()
+            local ok, first, second = pcall(validator, candidate)
+            local success = false
+            local info = {}
+
+            if ok then
+                if type(first) == "table" and second == nil then
+                    info = first
+                    success = info.Success == true
+                else
+                    success = first == true
+                    info = type(second) == "table" and second or {Message = second}
+                end
+            else
+                info = {Message = "Verification service unavailable.", Error = tostring(first), Retryable = true}
+            end
+
+            if success then
+                acceptedKey = candidate
+                acceptedInfo = info
+                verify.Text = "Key Accepted"
+                setStatus(info.Message or "Key accepted. Loading Vitality...", "Success")
+                task.wait(0.20)
+            else
+                verifying = false
+                verify.Active = true
+                verify.Text = tostring(settings.VerifyText or "Verify Key")
+                setStatus(info.Message or "That key could not be verified.", info.Retryable and "Information" or "Danger")
+            end
+        end)
+    end
+
+    verify.MouseButton1Click:Connect(verifyCandidate)
+    box.FocusLost:Connect(function(enterPressed)
+        if enterPressed then verifyCandidate() end
+    end)
+
+    getKey.MouseEnter:Connect(function()
+        tween(getKey, 0.12, {BackgroundColor3 = Theme.AccentSoft})
+        getKeyStroke.Transparency = 0.12
+    end)
+    getKey.MouseLeave:Connect(function()
+        tween(getKey, 0.12, {BackgroundColor3 = Theme.Surface3})
+        getKeyStroke.Transparency = 0.34
+    end)
+    getKey.MouseButton1Click:Connect(function()
+        local url = tostring(settings.GetKeyURL or "")
+        if url == "" then
+            setStatus("The free-key page is not configured yet.", "Danger")
+            return
+        end
+        local opened, copied = openExternalUrl(url)
+        safeCallback(settings.GetKeyCallback, url)
+        if opened then
+            setStatus("Opening the free-key page...", "Success")
+        elseif copied then
+            setStatus("Get Key link copied. Open it in your browser, complete both checkpoints, then paste the key here.", "Information")
+        else
+            setStatus("Could not open the browser automatically. Visit the configured Get Key page manually.", "Danger")
+        end
+    end)
+
+    box:CaptureFocus()
+
+    while gui.Parent and acceptedKey == nil do
+        task.wait(0.05)
+    end
+
+    if viewportConnection then pcall(function() viewportConnection:Disconnect() end) end
+    if gui then pcall(function() gui:Destroy() end) end
+    return acceptedKey, acceptedInfo
+end
+
 
 armRouter()
 
