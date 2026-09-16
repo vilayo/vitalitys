@@ -1,5 +1,5 @@
 --[[
-    Vitality's Hub / KAT / 1.5.0-LS
+    Vitality's Hub / KAT / 1.6.0-LS
 
     ============================================================
     KAT
@@ -22,6 +22,8 @@
     - FOV Circle (live runtime toggle)
     - FOV Radius
     - Sticky target retention
+    - Center / Head aim point
+    - Absolute third-person cursor movement
     - Smoothness
     - Independent Wall Check
 
@@ -31,7 +33,7 @@
     - Optional configurable FOV/radius assist
     - FOV Circle (live runtime toggle)
     - Independent Wall Check
-    - Revolver trigger
+    - Single-input Revolver trigger
     - Revolver auto reload
     - Knife auto charge / auto throw
 
@@ -41,6 +43,11 @@
     - Third person:
         follows actual mouse
 
+    FOV CUSTOMIZATION
+    - Per-feature circle colors
+    - Circle thickness
+    - Circle opacity
+
     KAT ESP
     - Own game-specific tab
     - Original KAT Highlight + Billboard implementation
@@ -49,6 +56,8 @@
     - Name
     - Distance
     - Health
+    - Fill / outline colors + opacity
+    - Name / distance / health / text-stroke colors
 
     Weapon switching uses WeaponEpoch so old Knife tasks cannot
     execute after Revolver is equipped and vice versa.
@@ -78,7 +87,7 @@ return function(context)
     ----------------------------------------------------------------
 
     local KEY =
-        "__VITALITY_KAT_MODULE_BUILD_STATE_V15"
+        "__VITALITY_KAT_MODULE_BUILD_STATE_V16"
 
     local ROUTER_KEY =
         "__VITALITY_KAT_COMBAT_ROUTER_V14"
@@ -90,23 +99,33 @@ return function(context)
     local previous =
         rawget(_G, KEY)
 
-    local legacyPrevious =
-        rawget(
-            _G,
-            "__VITALITY_KAT_MODULE_BUILD_STATE_V14"
-        )
+    local legacyKeys = {
+        "__VITALITY_KAT_MODULE_BUILD_STATE_V15",
+        "__VITALITY_KAT_MODULE_BUILD_STATE_V14",
+    }
 
-    if type(legacyPrevious) == "table"
-        and legacyPrevious ~= previous
-        and type(legacyPrevious.Restore) == "function" then
+    for _, legacyKey
+        in ipairs(legacyKeys) do
 
-        pcall(
-            legacyPrevious.Restore
-        )
+        local legacyPrevious =
+            rawget(
+                _G,
+                legacyKey
+            )
+
+        if type(legacyPrevious) == "table"
+            and legacyPrevious ~= previous
+            and type(legacyPrevious.Restore)
+                == "function" then
+
+            pcall(
+                legacyPrevious.Restore
+            )
+        end
 
         rawset(
             _G,
-            "__VITALITY_KAT_MODULE_BUILD_STATE_V14",
+            legacyKey,
             nil
         )
     end
@@ -200,6 +219,7 @@ return function(context)
         ------------------------------------------------------------
 
         AimbotRetainMultiplier = 1.22,
+
         TriggerRayLength = 5000,
         VisibilityPassLimit = 8,
 
@@ -295,6 +315,7 @@ return function(context)
 
         AimbotFOV = 300,
         AimbotUseFOV = true,
+        AimbotTarget = "Center",
 
         AimbotSmoothness = 0.28,
 
@@ -312,6 +333,7 @@ return function(context)
 
         TriggerbotRadius = 45,
         TriggerbotUseFOV = true,
+        TriggerbotAutoReload = true,
 
         TriggerbotWallCheck = true,
 
@@ -326,6 +348,12 @@ return function(context)
         SilentFOVObject = nil,
         AimbotFOVObject = nil,
         TriggerFOVObject = nil,
+
+        SilentFOVColor = Color3.fromRGB(170, 120, 255),
+        AimbotFOVColor = Color3.fromRGB(80, 190, 255),
+        TriggerFOVColor = Color3.fromRGB(255, 165, 75),
+        FOVThickness = 1.5,
+        FOVOpacity = 0.90,
 
         ----------------------------------------------------------------
         -- WEAPON
@@ -348,6 +376,7 @@ return function(context)
 
         RevolverAmmo = nil,
         RevolverReserve = nil,
+        RevolverAmmoUpdatedAt = 0,
 
         RevolverReloading = false,
 
@@ -391,6 +420,23 @@ return function(context)
         ESPShowHealth = true,
 
         ESPAttachments = {},
+
+        ESPStyle = {
+            HiddenFill = Config.RedFill,
+            HiddenOutline = Config.RedOutline,
+            VisibleFill = Config.GreenFill,
+            VisibleOutline = Config.GreenOutline,
+            SelfFill = Config.SelfFill,
+            SelfOutline = Config.SelfOutline,
+            FillOpacity = Config.FillAlpha,
+            OutlineOpacity = Config.OutlineAlpha,
+            NameColor = Color3.fromRGB(245, 245, 250),
+            DistanceColor = Color3.fromRGB(190, 190, 210),
+            HealthHigh = Color3.fromRGB(120, 220, 160),
+            HealthMid = Color3.fromRGB(240, 200, 100),
+            HealthLow = Color3.fromRGB(240, 110, 130),
+            TextStroke = Color3.new(0, 0, 0),
+        },
 
         ----------------------------------------------------------------
         -- DIAGNOSTICS
@@ -1176,6 +1222,7 @@ return function(context)
         return {
             Type = "GUI",
             Object = frame,
+            Stroke = stroke,
         }
     end
 
@@ -1253,6 +1300,46 @@ return function(context)
         return true
     end
 
+    local function applyFOVStyle(
+        descriptor,
+        color
+    )
+
+        if not descriptor then
+            return
+        end
+
+        local stroke =
+            descriptor.Stroke
+
+        if not stroke
+            or not stroke.Parent then
+
+            return
+        end
+
+        stroke.Color =
+            color
+
+        stroke.Thickness =
+            math.clamp(
+                tonumber(
+                    state.FOVThickness
+                ) or 1.5,
+                0.5,
+                8
+            )
+
+        stroke.Transparency =
+            1 - math.clamp(
+                tonumber(
+                    state.FOVOpacity
+                ) or 0.9,
+                0.05,
+                1
+            )
+    end
+
     local function refreshFOVVisuals()
 
         if not state.Alive then
@@ -1261,6 +1348,21 @@ return function(context)
 
         local origin =
             getAimScreenPosition()
+
+        applyFOVStyle(
+            state.SilentFOVObject,
+            state.SilentFOVColor
+        )
+
+        applyFOVStyle(
+            state.AimbotFOVObject,
+            state.AimbotFOVColor
+        )
+
+        applyFOVStyle(
+            state.TriggerFOVObject,
+            state.TriggerFOVColor
+        )
 
         updateSingleFOV(
             state.SilentFOVObject,
@@ -1316,10 +1418,23 @@ return function(context)
             return nil
         end
 
-        return getHead(
+        if state.AimbotTarget == "Head" then
+
+            return getHead(
+                player.Character
+            )
+                or getTorso(
+                    player.Character
+                )
+        end
+
+        -- "Center" deliberately prefers center mass so the cursor is
+        -- pulled into the middle of the character rather than hovering
+        -- above them at the head.
+        return getTorso(
             player.Character
         )
-            or getTorso(
+            or getHead(
                 player.Character
             )
     end
@@ -1575,6 +1690,44 @@ return function(context)
 
     local function getDirectTriggerTarget()
 
+        ------------------------------------------------------------
+        -- Roblox Mouse.Target is the most stable representation of
+        -- what the player's cursor/crosshair is actually over. It also
+        -- avoids viewport/inset disagreements between executors.
+        ------------------------------------------------------------
+
+        local mouseTarget =
+            Mouse.Target
+
+        if mouseTarget then
+
+            local mousePlayer =
+                playerFromHit(
+                    mouseTarget
+                )
+
+            if mousePlayer
+                and validPlayer(
+                    mousePlayer
+                ) then
+
+                local mousePart =
+                    getTriggerPart(
+                        mousePlayer.Character
+                    )
+
+                if mousePart then
+                    return mousePlayer,
+                        mousePart
+                end
+            end
+        end
+
+        ------------------------------------------------------------
+        -- Fallback ray for first-person / executor cases where
+        -- Mouse.Target is unavailable or briefly stale.
+        ------------------------------------------------------------
+
         local camera =
             Workspace.CurrentCamera
 
@@ -1640,13 +1793,8 @@ return function(context)
             return nil
         end
 
-        -- A direct viewport ray already proves the target is the first
-        -- world hit under the cursor/crosshair, so do not perform a
-        -- second center-mass wall check here. That second check could
-        -- incorrectly reject a visible head/limb when the torso is
-        -- partially behind cover. The radius-assist path below still
-        -- uses the independent Triggerbot wall check.
-
+        -- A direct hit is already unobstructed. Radius/FOV-assisted
+        -- acquisition below still honors Triggerbot Wall Check.
         return player,
             part
     end
@@ -1807,27 +1955,15 @@ return function(context)
 
         if fraction > 0.6 then
 
-            return Color3.fromRGB(
-                120,
-                220,
-                160
-            )
+            return state.ESPStyle.HealthHigh
 
         elseif fraction > 0.3 then
 
-            return Color3.fromRGB(
-                240,
-                200,
-                100
-            )
+            return state.ESPStyle.HealthMid
 
         else
 
-            return Color3.fromRGB(
-                240,
-                110,
-                130
-            )
+            return state.ESPStyle.HealthLow
         end
     end
 
@@ -1950,10 +2086,10 @@ return function(context)
         if isSelf then
 
             highlight.FillColor =
-                Config.SelfFill
+                state.ESPStyle.SelfFill
 
             highlight.OutlineColor =
-                Config.SelfOutline
+                state.ESPStyle.SelfOutline
 
             return
         end
@@ -1961,18 +2097,18 @@ return function(context)
         if canSeeMe then
 
             highlight.FillColor =
-                Config.GreenFill
+                state.ESPStyle.VisibleFill
 
             highlight.OutlineColor =
-                Config.GreenOutline
+                state.ESPStyle.VisibleOutline
 
         else
 
             highlight.FillColor =
-                Config.RedFill
+                state.ESPStyle.HiddenFill
 
             highlight.OutlineColor =
-                Config.RedOutline
+                state.ESPStyle.HiddenOutline
         end
     end
 
@@ -2089,21 +2225,13 @@ return function(context)
             15
 
         nameLabel.TextColor3 =
-            Color3.fromRGB(
-                245,
-                245,
-                250
-            )
+            state.ESPStyle.NameColor
 
         nameLabel.TextStrokeTransparency =
             0
 
         nameLabel.TextStrokeColor3 =
-            Color3.new(
-                0,
-                0,
-                0
-            )
+            state.ESPStyle.TextStroke
 
         nameLabel.Text =
             playerName
@@ -2150,21 +2278,13 @@ return function(context)
             12
 
         distanceLabel.TextColor3 =
-            Color3.fromRGB(
-                190,
-                190,
-                210
-            )
+            state.ESPStyle.DistanceColor
 
         distanceLabel.TextStrokeTransparency =
             0
 
         distanceLabel.TextStrokeColor3 =
-            Color3.new(
-                0,
-                0,
-                0
-            )
+            state.ESPStyle.TextStroke
 
         distanceLabel.Text =
             "—"
@@ -2210,21 +2330,13 @@ return function(context)
             11
 
         hpLabel.TextColor3 =
-            Color3.fromRGB(
-                180,
-                255,
-                200
-            )
+            state.ESPStyle.HealthHigh
 
         hpLabel.TextStrokeTransparency =
             0
 
         hpLabel.TextStrokeColor3 =
-            Color3.new(
-                0,
-                0,
-                0
-            )
+            state.ESPStyle.TextStroke
 
         hpLabel.Text =
             "—"
@@ -2270,11 +2382,11 @@ return function(context)
 
         highlight.FillTransparency =
             1
-            - Config.FillAlpha
+            - state.ESPStyle.FillOpacity
 
         highlight.OutlineTransparency =
             1
-            - Config.OutlineAlpha
+            - state.ESPStyle.OutlineOpacity
 
         highlight.Parent =
             CoreGui
@@ -2353,6 +2465,79 @@ return function(context)
 
             hpLabel.Visible =
                 state.ESPShowHealth
+        end
+    end
+
+    local function refreshESPStyle()
+
+        for _, attachment
+            in pairs(
+                state.ESPAttachments
+            ) do
+
+            if attachment.highlight then
+
+                attachment.highlight.FillTransparency =
+                    1 - math.clamp(
+                        state.ESPStyle.FillOpacity,
+                        0,
+                        1
+                    )
+
+                attachment.highlight.OutlineTransparency =
+                    1 - math.clamp(
+                        state.ESPStyle.OutlineOpacity,
+                        0,
+                        1
+                    )
+            end
+
+            applyESPColour(
+                attachment,
+                attachment.isSelf,
+                attachment.canSeeMe
+            )
+
+            if attachment.nameLabel then
+
+                attachment.nameLabel.TextColor3 =
+                    state.ESPStyle.NameColor
+
+                attachment.nameLabel.TextStrokeColor3 =
+                    state.ESPStyle.TextStroke
+            end
+
+            if attachment.distLabel then
+
+                attachment.distLabel.TextColor3 =
+                    state.ESPStyle.DistanceColor
+
+                attachment.distLabel.TextStrokeColor3 =
+                    state.ESPStyle.TextStroke
+            end
+
+            if attachment.hpLabel then
+
+                attachment.hpLabel.TextStrokeColor3 =
+                    state.ESPStyle.TextStroke
+
+                local humanoid =
+                    getHumanoid(
+                        attachment.character
+                    )
+
+                if humanoid then
+
+                    attachment.hpLabel.TextColor3 =
+                        healthColour(
+                            humanoid.Health
+                            / math.max(
+                                humanoid.MaxHealth,
+                                1
+                            )
+                        )
+                end
+            end
         end
     end
 
@@ -2977,6 +3162,9 @@ return function(context)
         state.RevolverReserve =
             nil
 
+        state.RevolverAmmoUpdatedAt =
+            0
+
         state.RevolverReloading =
             false
 
@@ -3076,6 +3264,13 @@ return function(context)
 
                         state.RevolverReserve =
                             reserve
+                    end
+
+                    if loaded ~= nil
+                        or reserve ~= nil then
+
+                        state.RevolverAmmoUpdatedAt =
+                            os.clock()
                     end
 
                     if loaded
@@ -4278,6 +4473,32 @@ return function(context)
         end)
     end
 
+    local function canAutoReloadRevolver()
+
+        if not state.TriggerbotAutoReload then
+            return false
+        end
+
+        -- Only reload from an explicit server-confirmed empty chamber.
+        -- nil is "unknown", not empty. This prevents speculative reloads
+        -- while the weapon is equipping or waiting for ammo sync.
+        if state.RevolverAmmo ~= 0 then
+            return false
+        end
+
+        if state.RevolverAmmoUpdatedAt <= 0 then
+            return false
+        end
+
+        if state.RevolverReserve ~= nil
+            and state.RevolverReserve <= 0 then
+
+            return false
+        end
+
+        return true
+    end
+
     local function reloadRevolver()
 
         if state.WeaponType
@@ -4295,15 +4516,7 @@ return function(context)
             return false
         end
 
-        if state.RevolverAmmo ~= nil
-            and state.RevolverAmmo > 0 then
-
-            return false
-        end
-
-        if state.RevolverReserve ~= nil
-            and state.RevolverReserve <= 0 then
-
+        if not canAutoReloadRevolver() then
             return false
         end
 
@@ -4430,22 +4643,29 @@ return function(context)
         local weapon =
             state.Weapon
 
-        local beforeFire =
-            state.LastWeaponFired
-
         ------------------------------------------------------------
-        -- Keep the original KAT-compatible Mouse signal path first.
+        -- KAT's original weapon script listens to Mouse.Button1Down.
+        -- v1.5 attempted a second input backend when WeaponFired was not
+        -- observed within 25 ms. That could issue two physical shots for
+        -- one Triggerbot activation and immediately empty the chamber.
+        -- Use exactly ONE input backend per shot and release it with the
+        -- same backend.
         ------------------------------------------------------------
-
-        local pressed =
-            sendSignalPrimaryInput(
-                true
-            )
 
         local usedSignal =
-            pressed == true
+            type(firesignal)
+                == "function"
 
-        if not pressed then
+        local pressed
+
+        if usedSignal then
+
+            pressed =
+                sendSignalPrimaryInput(
+                    true
+                )
+
+        else
 
             pressed =
                 sendPrimaryInput(
@@ -4478,6 +4698,7 @@ return function(context)
                 sendSignalPrimaryInput(
                     false
                 )
+
             else
 
                 sendPrimaryInput(
@@ -4486,58 +4707,7 @@ return function(context)
             end
         end
 
-        ------------------------------------------------------------
-        -- Cobalt confirms normal KAT firing emits native WeaponFired.
-        -- If the original signal path did not actually reach the weapon
-        -- script, use VirtualInput/executor input as a verified fallback.
-        ------------------------------------------------------------
-
-        task.wait(
-            0.025
-        )
-
-        if usedSignal
-            and state.WeaponEpoch
-                == epoch
-
-            and state.WeaponType
-                == "Revolver"
-
-            and state.Weapon
-                == weapon
-
-            and state.LastWeaponFired
-                <= beforeFire then
-
-            local fallbackPressed =
-                sendPrimaryInput(
-                    true
-                )
-
-            if fallbackPressed then
-
-                task.wait(
-                    Config.RevolverPressTime
-                )
-
-                if state.WeaponEpoch
-                    == epoch
-
-                    and state.WeaponType
-                        == "Revolver"
-
-                    and state.Weapon
-                        == weapon then
-
-                    sendPrimaryInput(
-                        false
-                    )
-                end
-            end
-        end
-
-        return state.LastWeaponFired
-            > beforeFire
+        return true
     end
 
     ----------------------------------------------------------------
@@ -4770,21 +4940,13 @@ return function(context)
             if state.WeaponType
                 == "Knife" then
 
-                --------------------------------------------------------
-                -- Always keep Knife charging while Triggerbot is on.
-                --------------------------------------------------------
-
                 if not state.KnifeCharging
-
                     and not state.KnifeInputHeld
-
                     and not state.KnifeReleaseBusy
-
                     and os.clock()
                         >= state.NextKnifeChargeAttempt then
 
                     state.NextKnifeChargeAttempt =
-
                         os.clock()
                         + Config.KnifeRetryDelay
 
@@ -4793,35 +4955,21 @@ return function(context)
                     )
                 end
 
-                --------------------------------------------------------
-                -- No target in FOV yet.
-                --------------------------------------------------------
-
                 if not player
-                    or not triggerPart then
+                    or not triggerPart
+                    or not knifeReady()
+                    or not validPlayer(player) then
 
                     return
                 end
 
-                if not knifeReady() then
-                    return
-                end
-
-                if not validPlayer(player) then
-                    return
-                end
-
-                --------------------------------------------------------
-                -- Target must STILL be inside Trigger FOV immediately
-                -- before release.
-                --------------------------------------------------------
-
-                local verify =
+                -- One last immediate verification is enough. v1.5 did
+                -- multiple independent reacquisitions which made fast
+                -- moving targets flicker in and out between checks.
+                local finalPlayer =
                     getClosestTriggerTarget()
 
-                if verify
-                    ~= player then
-
+                if finalPlayer ~= player then
                     return
                 end
 
@@ -4843,10 +4991,6 @@ return function(context)
                 return
             end
 
-            ------------------------------------------------------------
-            -- Hard-clear Knife state in gun mode.
-            ------------------------------------------------------------
-
             state.KnifeCharging =
                 false
 
@@ -4864,10 +5008,8 @@ return function(context)
                 state.Weapon
 
             if not revolver
-
                 or revolver.Parent
                     ~= LocalPlayer.Character
-
                 or classifyWeapon(
                     revolver
                 ) ~= "Revolver" then
@@ -4876,24 +5018,21 @@ return function(context)
             end
 
             ------------------------------------------------------------
-            -- AUTO RELOAD
+            -- Reload ONLY on a server-confirmed empty chamber.
             ------------------------------------------------------------
 
-            if state.RevolverAmmo ~= nil
-                and state.RevolverAmmo <= 0 then
+            if canAutoReloadRevolver() then
 
-                if (
-                    state.RevolverReserve == nil
-                    or state.RevolverReserve > 0
-                )
-
-                and not state.RevolverReloading then
-
+                if not state.RevolverReloading then
                     task.spawn(
                         reloadRevolver
                     )
                 end
 
+                return
+            end
+
+            if state.RevolverAmmo == 0 then
                 return
             end
 
@@ -4903,17 +5042,10 @@ return function(context)
                 return
             end
 
-            ------------------------------------------------------------
-            -- No player inside Triggerbot FOV.
-            ------------------------------------------------------------
-
             if not player
-                or not triggerPart then
+                or not triggerPart
+                or not validPlayer(player) then
 
-                return
-            end
-
-            if not validPlayer(player) then
                 return
             end
 
@@ -4922,30 +5054,10 @@ return function(context)
 
             if now
                 - state.LastRevolverShot
-
                 < Config.RevolverCooldown then
 
                 return
             end
-
-            ------------------------------------------------------------
-            -- Verify target remains inside Triggerbot FOV.
-            ------------------------------------------------------------
-
-            local verify =
-                getClosestTriggerTarget()
-
-            if verify
-                ~= player then
-
-                return
-            end
-
-            state.LastRevolverShot =
-                now
-
-            state.LastTarget =
-                player.Name
 
             state.RevolverBusy =
                 true
@@ -4958,82 +5070,74 @@ return function(context)
 
             task.spawn(function()
 
-                if state.WeaponEpoch
-                    ~= epoch
+                local function finish()
 
+                    if state.WeaponEpoch
+                        == epoch
+                        and state.WeaponType
+                            == "Revolver"
+                        and state.Weapon
+                            == currentWeapon then
+
+                        state.RevolverBusy =
+                            false
+                    end
+                end
+
+                if not state.TriggerbotEnabled
+                    or state.WeaponEpoch
+                        ~= epoch
                     or state.WeaponType
                         ~= "Revolver"
-
                     or state.Weapon
                         ~= currentWeapon then
 
+                    finish()
                     return
                 end
 
-                --------------------------------------------------------
-                -- Became empty before scheduled fire.
-                --------------------------------------------------------
+                if canAutoReloadRevolver() then
 
-                if state.RevolverAmmo ~= nil
-                    and state.RevolverAmmo <= 0 then
-
-                    state.RevolverBusy =
-                        false
-
-                    if not state.RevolverReloading then
-
-                        reloadRevolver()
-                    end
-
+                    finish()
+                    reloadRevolver()
                     return
                 end
 
+                if state.RevolverAmmo == 0 then
+                    finish()
+                    return
+                end
+
+                -- Final verification occurs exactly once immediately before
+                -- input. This keeps trigger behavior precise without the
+                -- v1.5 triple-reacquisition race.
                 local finalPlayer =
                     getClosestTriggerTarget()
 
-                if state.TriggerbotEnabled
+                if finalPlayer ~= player
+                    or not validPlayer(player) then
 
-                    and finalPlayer
-                        == player
+                    finish()
+                    return
+                end
 
-                    and validPlayer(
-                        player
-                    ) then
-
+                local fired =
                     fireRevolver()
+
+                if fired then
+
+                    state.LastRevolverShot =
+                        os.clock()
+
+                    state.LastTarget =
+                        player.Name
                 end
 
-                --------------------------------------------------------
-                -- Reset this exact Revolver only.
-                --------------------------------------------------------
+                finish()
 
-                if state.WeaponEpoch
-                    == epoch
-
-                    and state.WeaponType
-                        == "Revolver"
-
-                    and state.Weapon
-                        == currentWeapon then
-
-                    state.RevolverBusy =
-                        false
-
-                    if state.RevolverAmmo ~= nil
-                        and state.RevolverAmmo <= 0
-
-                        and not state.RevolverReloading
-
-                        and (
-                            state.RevolverReserve == nil
-                            or state.RevolverReserve > 0
-                        ) then
-
-                        task.spawn(
-                            reloadRevolver
-                        )
-                    end
-                end
+                -- Do NOT reload here. The next RenderStepped iteration
+                -- waits for ServerAmmoValues and reloads only if it reports
+                -- an actual zero-round chamber.
 
             end)
 
@@ -5158,27 +5262,86 @@ return function(context)
                 )
 
             ------------------------------------------------------------
-            -- Executor mouse movement
+            -- Cursor movement
+            --
+            -- In third person prefer ABSOLUTE cursor movement so the
+            -- visible cursor itself is pulled toward center mass. v1.5
+            -- only used mousemoverel, which can rotate/lock aim without
+            -- visibly placing the cursor on the player in some executors.
+            ------------------------------------------------------------
+
+            local targetX =
+                aimOrigin.X
+                + dx * trackingAlpha
+
+            local targetY =
+                aimOrigin.Y
+                + dy * trackingAlpha
+
+            if not isFirstPerson() then
+
+                if type(mousemoveabs)
+                    == "function" then
+
+                    local okMove =
+                        pcall(function()
+
+                            mousemoveabs(
+                                targetX,
+                                targetY
+                            )
+
+                        end)
+
+                    if okMove then
+                        return
+                    end
+                end
+
+                local okVirtual =
+                    pcall(function()
+
+                        VirtualInputManager:
+                        SendMouseMoveEvent(
+                            targetX,
+                            targetY,
+                            game
+                        )
+
+                    end)
+
+                if okVirtual then
+                    return
+                end
+            end
+
+            ------------------------------------------------------------
+            -- Relative movement remains the best path while Roblox has
+            -- the mouse locked in first person, and is the compatibility
+            -- fallback for executors without absolute movement.
             ------------------------------------------------------------
 
             if type(mousemoverel)
                 == "function" then
 
-                pcall(function()
+                local okRelative =
+                    pcall(function()
 
-                    mousemoverel(
+                        mousemoverel(
 
-                        dx
-                        * trackingAlpha,
+                            dx
+                            * trackingAlpha,
 
-                        dy
-                        * trackingAlpha
+                            dy
+                            * trackingAlpha
 
-                    )
+                        )
 
-                end)
+                    end)
 
-                return
+                if okRelative then
+                    return
+                end
             end
 
             ------------------------------------------------------------
@@ -5890,6 +6053,31 @@ return function(context)
                         end,
                 })
 
+            controls.TriggerAutoReload =
+
+                trigger:
+                CreateToggle({
+
+                    Name =
+                        "Auto Reload When Empty",
+
+                    Info =
+                        "Reloads only after KAT reports a server-confirmed 0-round chamber.",
+
+                    Flag =
+                        "KAT_TriggerAutoReload",
+
+                    CurrentValue =
+                        true,
+
+                    Callback =
+                        function(value)
+
+                            state.TriggerbotAutoReload =
+                                value == true
+                        end,
+                })
+
             trigger:
             CreateParagraph({
 
@@ -5897,7 +6085,7 @@ return function(context)
                     "Weapon Automation",
 
                 Content =
-                    "Revolver: fires when the cursor/crosshair is directly on a living player; Use FOV can also allow radius-based activation. Auto reload remains enabled.\nKnife: remains charged while equipped and uses the same Triggerbot targeting rules before throwing.",
+                    "Revolver: one click per Triggerbot activation. Direct cursor/crosshair hits are preferred; Use FOV can also allow radius-based activation. Auto reload only occurs on a confirmed empty chamber.\nKnife: remains charged while equipped and uses the same Triggerbot targeting rules before throwing.",
             })
 
             ----------------------------------------------------------------
@@ -5960,6 +6148,50 @@ return function(context)
                 Content =
                     "The toggle arms Aimbot. Aim movement only occurs while Right Mouse Button is physically held.",
             })
+
+            controls.AimbotTarget =
+
+                aimbot:
+                CreateDropdown({
+
+                    Name =
+                        "Aim Point",
+
+                    Info =
+                        "Center moves the cursor toward torso / center mass. Head targets the head.",
+
+                    Flag =
+                        "KAT_AimbotTarget",
+
+                    Options = {
+                        "Center",
+                        "Head",
+                    },
+
+                    CurrentOption =
+                        "Center",
+
+                    Callback =
+                        function(value)
+
+                            if value == "Head" then
+
+                                state.AimbotTarget =
+                                    "Head"
+
+                            else
+
+                                state.AimbotTarget =
+                                    "Center"
+                            end
+
+                            state.AimbotLockedPlayer =
+                                nil
+
+                            state.AimbotLockedPart =
+                                nil
+                        end,
+                })
 
             controls.AimbotUseFOV =
 
@@ -6123,6 +6355,185 @@ return function(context)
 
                             state.AimbotWallCheck =
                                 value == true
+                        end,
+                })
+
+            ----------------------------------------------------------------
+            -- FOV CUSTOMIZATION
+            ----------------------------------------------------------------
+
+            local fovStyle =
+                tab:
+                CreateSection({
+
+                    Name =
+                        "FOV Customization",
+
+                    Icon =
+                        "crosshair",
+
+                    Side =
+                        "Right",
+                })
+
+            controls.SilentFOVColor =
+
+                fovStyle:
+                CreateColorPicker({
+
+                    Name =
+                        "Silent Aim Circle",
+
+                    Color =
+                        state.SilentFOVColor,
+
+                    Flag =
+                        "KAT_SilentFOVColor",
+
+                    Callback =
+                        function(color)
+
+                            if typeof(color) == "Color3" then
+
+                                state.SilentFOVColor =
+                                    color
+
+                                refreshFOVVisuals()
+                            end
+                        end,
+                })
+
+            controls.AimbotFOVColor =
+
+                fovStyle:
+                CreateColorPicker({
+
+                    Name =
+                        "Aimbot Circle",
+
+                    Color =
+                        state.AimbotFOVColor,
+
+                    Flag =
+                        "KAT_AimbotFOVColor",
+
+                    Callback =
+                        function(color)
+
+                            if typeof(color) == "Color3" then
+
+                                state.AimbotFOVColor =
+                                    color
+
+                                refreshFOVVisuals()
+                            end
+                        end,
+                })
+
+            controls.TriggerFOVColor =
+
+                fovStyle:
+                CreateColorPicker({
+
+                    Name =
+                        "Triggerbot Circle",
+
+                    Color =
+                        state.TriggerFOVColor,
+
+                    Flag =
+                        "KAT_TriggerFOVColor",
+
+                    Callback =
+                        function(color)
+
+                            if typeof(color) == "Color3" then
+
+                                state.TriggerFOVColor =
+                                    color
+
+                                refreshFOVVisuals()
+                            end
+                        end,
+                })
+
+            controls.FOVThickness =
+
+                fovStyle:
+                CreateSlider({
+
+                    Name =
+                        "Circle Thickness",
+
+                    Flag =
+                        "KAT_FOVThickness",
+
+                    Range = {
+                        0.5,
+                        8,
+                    },
+
+                    Increment =
+                        0.25,
+
+                    CurrentValue =
+                        1.5,
+
+                    Suffix =
+                        " px",
+
+                    Callback =
+                        function(value)
+
+                            state.FOVThickness =
+                                math.clamp(
+                                    tonumber(value)
+                                        or 1.5,
+                                    0.5,
+                                    8
+                                )
+
+                            refreshFOVVisuals()
+                        end,
+                })
+
+            controls.FOVOpacity =
+
+                fovStyle:
+                CreateSlider({
+
+                    Name =
+                        "Circle Opacity",
+
+                    Flag =
+                        "KAT_FOVOpacity",
+
+                    Range = {
+                        5,
+                        100,
+                    },
+
+                    Increment =
+                        1,
+
+                    CurrentValue =
+                        90,
+
+                    Suffix =
+                        "%",
+
+                    Callback =
+                        function(value)
+
+                            state.FOVOpacity =
+                                math.clamp(
+                                    (tonumber(value)
+                                        or 90) / 100,
+                                    0.05,
+                                    1
+                                )
+
+                            refreshFOVVisuals()
                         end,
                 })
 
@@ -6463,8 +6874,215 @@ return function(context)
                     "Colours",
 
                 Content =
-                    "Red — no clear line of sight to you.\nGreen — player has a clear world-geometry line of sight to your head.\nBlue — your own character.",
+                    "Blocked — no clear line of sight to you.\nVisible / Threat — player has a clear world-geometry line of sight to your head.\nSelf — your own character. Defaults are red, green, and blue; all are customizable below.",
             })
+
+            local espAppearance =
+                espTab:
+                CreateSection({
+
+                    Name =
+                        "ESP Customization",
+
+                    Icon =
+                        "esp",
+
+                    Side =
+                        "Right",
+                })
+
+            local function addESPColorControl(
+                name,
+                flag,
+                styleKey
+            )
+
+                controls[flag] =
+                    espAppearance:
+                    CreateColorPicker({
+
+                        Name =
+                            name,
+
+                        Color =
+                            state.ESPStyle[styleKey],
+
+                        Flag =
+                            "KAT_" .. flag,
+
+                        Callback =
+                            function(color)
+
+                                if typeof(color) == "Color3" then
+
+                                    state.ESPStyle[styleKey] =
+                                        color
+
+                                    refreshESPStyle()
+                                end
+                            end,
+                    })
+            end
+
+            addESPColorControl(
+                "Blocked Fill",
+                "ESPBlockedFill",
+                "HiddenFill"
+            )
+
+            addESPColorControl(
+                "Visible / Threat Fill",
+                "ESPThreatFill",
+                "VisibleFill"
+            )
+
+            addESPColorControl(
+                "Self Fill",
+                "ESPSelfFill",
+                "SelfFill"
+            )
+
+            addESPColorControl(
+                "Blocked Outline",
+                "ESPBlockedOutline",
+                "HiddenOutline"
+            )
+
+            addESPColorControl(
+                "Visible / Threat Outline",
+                "ESPThreatOutline",
+                "VisibleOutline"
+            )
+
+            addESPColorControl(
+                "Self Outline",
+                "ESPSelfOutline",
+                "SelfOutline"
+            )
+
+            addESPColorControl(
+                "Name Text",
+                "ESPNameColor",
+                "NameColor"
+            )
+
+            addESPColorControl(
+                "Distance Text",
+                "ESPDistanceColor",
+                "DistanceColor"
+            )
+
+            addESPColorControl(
+                "Health High",
+                "ESPHealthHigh",
+                "HealthHigh"
+            )
+
+            addESPColorControl(
+                "Health Medium",
+                "ESPHealthMid",
+                "HealthMid"
+            )
+
+            addESPColorControl(
+                "Health Low",
+                "ESPHealthLow",
+                "HealthLow"
+            )
+
+            addESPColorControl(
+                "Text Stroke",
+                "ESPTextStroke",
+                "TextStroke"
+            )
+
+            controls.ESPFillOpacity =
+
+                espAppearance:
+                CreateSlider({
+
+                    Name =
+                        "Fill Opacity",
+
+                    Flag =
+                        "KAT_ESPFillOpacity",
+
+                    Range = {
+                        0,
+                        100,
+                    },
+
+                    Increment =
+                        1,
+
+                    CurrentValue =
+                        math.floor(
+                            state.ESPStyle.FillOpacity
+                            * 100
+                            + 0.5
+                        ),
+
+                    Suffix =
+                        "%",
+
+                    Callback =
+                        function(value)
+
+                            state.ESPStyle.FillOpacity =
+                                math.clamp(
+                                    (tonumber(value)
+                                        or 35) / 100,
+                                    0,
+                                    1
+                                )
+
+                            refreshESPStyle()
+                        end,
+                })
+
+            controls.ESPOutlineOpacity =
+
+                espAppearance:
+                CreateSlider({
+
+                    Name =
+                        "Outline Opacity",
+
+                    Flag =
+                        "KAT_ESPOutlineOpacity",
+
+                    Range = {
+                        0,
+                        100,
+                    },
+
+                    Increment =
+                        1,
+
+                    CurrentValue =
+                        math.floor(
+                            state.ESPStyle.OutlineOpacity
+                            * 100
+                            + 0.5
+                        ),
+
+                    Suffix =
+                        "%",
+
+                    Callback =
+                        function(value)
+
+                            state.ESPStyle.OutlineOpacity =
+                                math.clamp(
+                                    (tonumber(value)
+                                        or 90) / 100,
+                                    0,
+                                    1
+                                )
+
+                            refreshESPStyle()
+                        end,
+                })
 
             ----------------------------------------------------------------
             -- RESTORE SAVED VALUES
@@ -6534,11 +7152,21 @@ return function(context)
                 controls.TriggerWall:Get()
                 == true
 
+            state.TriggerbotAutoReload =
+                controls.TriggerAutoReload:Get()
+                == true
+
             ------------------------------------------------------------
 
             state.AimbotEnabled =
                 controls.Aimbot:Get()
                 == true
+
+            state.AimbotTarget =
+                controls.AimbotTarget:Get()
+                    == "Head"
+                and "Head"
+                or "Center"
 
             state.AimbotUseFOV =
                 controls.AimbotUseFOV:Get()
@@ -6572,6 +7200,54 @@ return function(context)
                 controls.AimbotWall:Get()
                 == true
 
+            local savedSilentFOVColor =
+                controls.SilentFOVColor:Get()
+
+            if typeof(savedSilentFOVColor)
+                == "Color3" then
+
+                state.SilentFOVColor =
+                    savedSilentFOVColor
+            end
+
+            local savedAimbotFOVColor =
+                controls.AimbotFOVColor:Get()
+
+            if typeof(savedAimbotFOVColor)
+                == "Color3" then
+
+                state.AimbotFOVColor =
+                    savedAimbotFOVColor
+            end
+
+            local savedTriggerFOVColor =
+                controls.TriggerFOVColor:Get()
+
+            if typeof(savedTriggerFOVColor)
+                == "Color3" then
+
+                state.TriggerFOVColor =
+                    savedTriggerFOVColor
+            end
+
+            state.FOVThickness =
+                math.clamp(
+                    tonumber(
+                        controls.FOVThickness:Get()
+                    ) or 1.5,
+                    0.5,
+                    8
+                )
+
+            state.FOVOpacity =
+                math.clamp(
+                    (tonumber(
+                        controls.FOVOpacity:Get()
+                    ) or 90) / 100,
+                    0.05,
+                    1
+                )
+
             ------------------------------------------------------------
 
             state.ESPEnabled =
@@ -6590,7 +7266,56 @@ return function(context)
                 controls.ESPHealth:Get()
                 == true
 
+            local espColorControls = {
+                HiddenFill = controls.ESPBlockedFill,
+                VisibleFill = controls.ESPThreatFill,
+                SelfFill = controls.ESPSelfFill,
+                HiddenOutline = controls.ESPBlockedOutline,
+                VisibleOutline = controls.ESPThreatOutline,
+                SelfOutline = controls.ESPSelfOutline,
+                NameColor = controls.ESPNameColor,
+                DistanceColor = controls.ESPDistanceColor,
+                HealthHigh = controls.ESPHealthHigh,
+                HealthMid = controls.ESPHealthMid,
+                HealthLow = controls.ESPHealthLow,
+                TextStroke = controls.ESPTextStroke,
+            }
+
+            for styleKey, control
+                in pairs(espColorControls) do
+
+                local color =
+                    control
+                    and control:Get()
+
+                if typeof(color)
+                    == "Color3" then
+
+                    state.ESPStyle[styleKey] =
+                        color
+                end
+            end
+
+            state.ESPStyle.FillOpacity =
+                math.clamp(
+                    (tonumber(
+                        controls.ESPFillOpacity:Get()
+                    ) or 35) / 100,
+                    0,
+                    1
+                )
+
+            state.ESPStyle.OutlineOpacity =
+                math.clamp(
+                    (tonumber(
+                        controls.ESPOutlineOpacity:Get()
+                    ) or 90) / 100,
+                    0,
+                    1
+                )
+
             refreshESPVisibility()
+            refreshESPStyle()
             refreshFOVVisuals()
 
             ------------------------------------------------------------
@@ -6633,7 +7358,7 @@ return function(context)
             "KAT",
 
         Content =
-            "KAT 1.5 loaded. Wall checks, live FOV circles, Use FOV controls, sticky Aimbot tracking, and Triggerbot targeting are active.",
+            "KAT 1.6 loaded. Triggerbot single-shot firing, confirmed-empty reloads, center-mass cursor Aimbot, ESP customization, and FOV customization are active.",
 
         Duration =
             4,
