@@ -12,7 +12,7 @@ local TextService = game:GetService("TextService")
 local LocalPlayer = Players.LocalPlayer
 
 local Library = {
-    Version = "2.14.1-LS",
+    Version = "2.14.3-LS",
     Flags = {},
     _openPopup = nil,
     _openPopupOwner = nil,
@@ -9693,6 +9693,24 @@ function WindowMethods:ForgetSavedKey()
 
     local removedMain = clearStoredKey(keyStoragePath(settings))
     local removedTimed = clearStoredKey(timedKeyStoragePath(settings))
+    local removedLuarmor = clearStoredKey("VitalityHubKeys/VitalityLuarmorKey.txt")
+
+    -- The Luarmor bootstrap also keeps a same-session memory copy so executors
+    -- that cannot use file IO during pre-auth can still remember a valid key.
+    -- "forgetkey" must clear every copy, not only the on-disk file.
+    local memoryName = "__VITALITY_LUARMOR_REMEMBERED_KEY"
+    pcall(function()
+        if type(getgenv) == "function" then
+            local env = getgenv()
+            if type(env) == "table" then env[memoryName] = nil end
+        end
+    end)
+    pcall(function()
+        if type(shared) == "table" then shared[memoryName] = nil end
+    end)
+    pcall(function()
+        if type(_G) == "table" then _G[memoryName] = nil end
+    end)
 
     self.ActiveKey = nil
     self.RemoteKeyInfo = nil
@@ -9705,7 +9723,7 @@ function WindowMethods:ForgetSavedKey()
         self:_refreshStatusChipLayout()
     end
 
-    return removedMain or removedTimed
+    return removedMain or removedTimed or removedLuarmor
 end
 
 local function buildKeySystem(window)
@@ -13285,7 +13303,7 @@ function Library:PromptForAccessKey(settings)
         BorderSizePixel = 0,
         PlaceholderText = tostring(settings.PlaceholderText or "Enter your Vitality key..."),
         PlaceholderColor3 = Theme.Muted,
-        Text = "",
+        Text = tostring(settings.InitialValue or ""),
         TextColor3 = Theme.Text,
         TextSize = 12,
         Font = Enum.Font.Gotham,
@@ -13337,7 +13355,7 @@ function Library:PromptForAccessKey(settings)
     local getKeyStroke = stroke(getKey, Theme.AccentVisible, 1, 0.34)
 
     local footer = makeText(card,
-        tostring(settings.Footer or "Free keys are temporary. Premium keys can be supplied before execution."),
+        tostring(settings.Footer or "Valid keys can be remembered and re-checked before each execution."),
         10, Theme.Muted, Enum.Font.Gotham)
     footer.Position = UDim2.fromOffset(24, 289)
     footer.Size = UDim2.new(1, -48, 0, 24)
