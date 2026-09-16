@@ -1,20 +1,65 @@
--- vitality's hub / KAT / 1.2.0-LS
--- KAT-specific module:
---   Silent Aim
---   RMB-hold Aimbot
---   Revolver + Knife Triggerbot
---   Revolver Auto Reload
---   Knife Auto Charge / Auto Throw
---   KAT LOS ESP
---
--- Requires Vitality library/window context.
+--[[
+    vitality's hub / KAT / 1.3.0-LS
+
+    TABS
+    ----
+    KAT
+        Silent Aim
+        Aimbot
+        Triggerbot
+        Diagnostics
+
+    KAT ESP
+        Player ESP
+        Names
+        Distance
+        Health
+        Threat / LOS indicator
+
+
+    SILENT AIM
+    ----------
+    - Toggle
+    - Head / Torso / Random
+    - Hit chance 0-100%
+    - Whole screen / radius
+    - Independent wall check
+
+
+    AIMBOT
+    ------
+    - Toggle arms the feature
+    - ONLY active while holding RMB
+    - FOV
+    - Smoothness
+    - Independent wall check
+
+
+    TRIGGERBOT
+    ----------
+    - Restored original player-under-cursor behavior
+    - Head / Torso / Random used as target/LOS reference
+    - Independent wall check
+    - Revolver triggerbot
+    - Revolver auto reload
+    - Knife auto charge / throw
+    - Strict Knife / Revolver isolation
+
+
+    ESP
+    ---
+    Ported from working standalone KAT ESP:
+    - Highlight
+    - Username
+    - Distance
+    - Health
+    - Red default
+    - Green when enemy has clear LOS to your head
+]]
 
 return function(context)
 
-    assert(
-        type(context) == "table",
-        "KAT requires a module context"
-    )
+    assert(type(context) == "table", "KAT requires module context")
 
     local Library =
         assert(
@@ -28,25 +73,22 @@ return function(context)
             "Vitality window missing"
         )
 
-
-    --====================================================
+    ----------------------------------------------------------------
     -- KEYS
-    --====================================================
+    ----------------------------------------------------------------
 
     local KEY =
-        "__VITALITY_KAT_MODULE_BUILD_STATE"
+        "__VITALITY_KAT_MODULE_BUILD_STATE_V13"
 
     local ROUTER_KEY =
-        "__VITALITY_KAT_LS_COMBAT_ROUTER_V2"
+        "__VITALITY_KAT_COMBAT_ROUTER_V13"
 
-
-    --====================================================
-    -- PREVIOUS INSTANCE
-    --====================================================
+    ----------------------------------------------------------------
+    -- PREVIOUS MODULE INSTANCE
+    ----------------------------------------------------------------
 
     local previous =
         rawget(_G, KEY)
-
 
     if type(previous) == "table"
         and previous.Window == Window
@@ -56,19 +98,15 @@ return function(context)
         return true
     end
 
-
     if type(previous) == "table"
         and type(previous.Restore) == "function" then
 
-        pcall(
-            previous.Restore
-        )
+        pcall(previous.Restore)
     end
 
-
-    --====================================================
+    ----------------------------------------------------------------
     -- SERVICES
-    --====================================================
+    ----------------------------------------------------------------
 
     local Players =
         game:GetService("Players")
@@ -88,303 +126,327 @@ return function(context)
     local VirtualInputManager =
         game:GetService("VirtualInputManager")
 
-
     local LocalPlayer =
         assert(
             Players.LocalPlayer,
-            "KAT requires a Roblox client"
+            "KAT requires Roblox client"
         )
-
 
     local Mouse =
         LocalPlayer:GetMouse()
 
-
-    --====================================================
-    -- ESP PARENT
-    --====================================================
-
-    local EspParent =
-        CoreGui
-
-
-    if type(gethui) == "function" then
-
-        local ok,
-            result =
-            pcall(
-                gethui
-            )
-
-
-        if ok and result then
-            EspParent = result
-        end
-    end
-
-
-    --====================================================
-    -- STATE
-    --====================================================
-
-    local state = {
-
-        Window = Window,
-
-        Alive = true,
-
-        Ready = false,
-
-
-        Connections = {},
-
-        PlayerConnections = {},
-
-
-        --==============================================
-        -- SILENT AIM
-        --==============================================
-
-        SilentAimEnabled = false,
-
-        SilentAimWholeScreen = true,
-
-        SilentAimRadius = 175,
-
-        SilentAimTargetMode = "Head",
-
-        SilentAimHitChance = 100,
-
-        WallCheck = true,
-
-
-        --==============================================
-        -- AIMBOT
-        --==============================================
-
-        AimbotEnabled = false,
-
-        AimbotFOV = 300,
-
-        AimbotSmoothness = 0.28,
-
-
-        --==============================================
-        -- TRIGGERBOT
-        --==============================================
-
-        TriggerbotEnabled = false,
-
-        TriggerTargetMode = "Head",
-
-
-        --==============================================
-        -- WEAPON STATE
-        --==============================================
-
-        Weapon = nil,
-
-        WeaponType = "None",
-
-        WeaponEpoch = 0,
-
-        WeaponChangedAt = 0,
-
-
-        --==============================================
-        -- REVOLVER
-        --==============================================
-
-        RevolverBusy = false,
-
-        RevolverPrimed = false,
-
-        RevolverAmmo = nil,
-
-        RevolverReserve = nil,
-
-        RevolverReloading = false,
-
-        LastReloadAttempt = 0,
-
-        LastRevolverShot = 0,
-
-        LastWeaponFired = 0,
-
-        WeaponEventConnection = nil,
-
-
-        --==============================================
-        -- KNIFE
-        --==============================================
-
-        KnifeCharging = false,
-
-        KnifeInputHeld = false,
-
-        KnifeReleaseBusy = false,
-
-        KnifeChargeStarted = 0,
-
-        LastKnifeStartCharge = 0,
-
-        LastKnifeChargeRelease = 0,
-
-        NextKnifeChargeAttempt = 0,
-
-
-        --==============================================
-        -- ESP
-        --==============================================
-
-        ESPEnabled = false,
-
-        ESPNames = true,
-
-        ESPDistance = true,
-
-        ESPHealth = true,
-
-        ESPAttachments = {},
-
-
-        --==============================================
-        -- TARGET / DEATH
-        --==============================================
-
-        DeadTargets = {},
-
-        LastTarget = nil,
-
-
-        --==============================================
-        -- DIAGNOSTICS
-        --==============================================
-
-        Matched = 0,
-
-        Redirected = 0,
-
-        MissedChance = 0,
-
-        Errors = 0,
-
-        LastError = nil,
-    }
-
-
-    --====================================================
-    -- CONFIG CONSTANTS
-    --====================================================
+    ----------------------------------------------------------------
+    -- CONSTANT CONFIG
+    ----------------------------------------------------------------
 
     local Config = {
 
         MinimumRayLength = 100,
 
+        ------------------------------------------------------------
+        -- Revolver
+        ------------------------------------------------------------
 
         RevolverCooldown = 0.12,
-
         RevolverPressTime = 0.012,
 
         RevolverEquipSettle = 0.15,
 
         RevolverReloadRetry = 0.35,
-
         RevolverReloadTimeout = 2.75,
-
         RevolverReloadKeyHold = 0.035,
 
+        ------------------------------------------------------------
+        -- Knife
+        ------------------------------------------------------------
 
         KnifeMinimumCharge = 0.70,
-
         KnifeEquipSettle = 0.15,
-
         KnifeRearmDelay = 0.12,
-
         KnifeRetryDelay = 0.15,
 
+        ------------------------------------------------------------
+        -- Player lifecycle
+        ------------------------------------------------------------
 
         DeadTargetBlockTime = 2.5,
 
+        ------------------------------------------------------------
+        -- ESP
+        ------------------------------------------------------------
 
         ESPLOSRange = 2500,
-
         ESPLOSInterval = 0.10,
 
-
-        ESPRedFill =
+        RedFill =
             Color3.fromRGB(
                 240,
                 60,
                 80
             ),
 
-        ESPRedOutline =
+        RedOutline =
             Color3.fromRGB(
                 255,
                 140,
                 150
             ),
 
-
-        ESPGreenFill =
+        GreenFill =
             Color3.fromRGB(
                 70,
                 230,
                 110
             ),
 
-        ESPGreenOutline =
+        GreenOutline =
             Color3.fromRGB(
                 160,
                 255,
                 180
             ),
 
-
-        ESPSelfFill =
+        SelfFill =
             Color3.fromRGB(
                 120,
                 200,
                 255
             ),
 
-        ESPSelfOutline =
+        SelfOutline =
             Color3.fromRGB(
                 180,
                 230,
                 255
             ),
 
-
-        ESPFillAlpha = 0.35,
-
-        ESPOutlineAlpha = 0.90,
+        FillAlpha = 0.35,
+        OutlineAlpha = 0.90,
     }
 
+    ----------------------------------------------------------------
+    -- STATE
+    ----------------------------------------------------------------
+
+    local state = {
+
+        Window = Window,
+
+        Alive = true,
+        Ready = false,
+
+        Connections = {},
+        PlayerConnections = {},
+
+        ----------------------------------------------------------------
+        -- Silent Aim
+        ----------------------------------------------------------------
+
+        SilentAimEnabled = false,
+
+        SilentAimWholeScreen = true,
+        SilentAimRadius = 175,
+
+        SilentAimTarget = "Head",
+        SilentAimHitChance = 100,
+
+        SilentAimWallCheck = true,
+
+        ----------------------------------------------------------------
+        -- Aimbot
+        ----------------------------------------------------------------
+
+        AimbotEnabled = false,
+
+        AimbotFOV = 300,
+        AimbotSmoothness = 0.28,
+
+        AimbotWallCheck = true,
+
+        ----------------------------------------------------------------
+        -- Triggerbot
+        ----------------------------------------------------------------
+
+        TriggerbotEnabled = false,
+
+        TriggerbotTarget = "Head",
+
+        TriggerbotWallCheck = true,
+
+        ----------------------------------------------------------------
+        -- Equipped weapon
+        ----------------------------------------------------------------
+
+        Weapon = nil,
+        WeaponType = "None",
+
+        WeaponEpoch = 0,
+        WeaponChangedAt = 0,
+
+        WeaponEventConnection = nil,
+
+        ----------------------------------------------------------------
+        -- Revolver
+        ----------------------------------------------------------------
+
+        RevolverBusy = false,
+        RevolverPrimed = false,
+
+        RevolverAmmo = nil,
+        RevolverReserve = nil,
+
+        RevolverReloading = false,
+
+        LastReloadAttempt = 0,
+        LastRevolverShot = 0,
+        LastWeaponFired = 0,
+
+        ----------------------------------------------------------------
+        -- Knife
+        ----------------------------------------------------------------
+
+        KnifeCharging = false,
+        KnifeInputHeld = false,
+        KnifeReleaseBusy = false,
+
+        KnifeChargeStarted = 0,
+
+        LastKnifeStartCharge = 0,
+        LastKnifeChargeRelease = 0,
+
+        NextKnifeChargeAttempt = 0,
+
+        ----------------------------------------------------------------
+        -- Death / targets
+        ----------------------------------------------------------------
+
+        DeadTargets = {},
+
+        LastTarget = nil,
+
+        ----------------------------------------------------------------
+        -- ESP
+        ----------------------------------------------------------------
+
+        ESPEnabled = false,
+
+        ESPShowNames = true,
+        ESPShowDistance = true,
+        ESPShowHealth = true,
+
+        ESPAttachments = {},
+
+        ----------------------------------------------------------------
+        -- Diagnostics
+        ----------------------------------------------------------------
+
+        Matched = 0,
+        Redirected = 0,
+        NoTarget = 0,
+        ChanceMiss = 0,
+        Errors = 0,
+
+        LastRayMag = nil,
+        LastError = nil,
+    }
 
     local controls = {}
 
-
-    --====================================================
+    ----------------------------------------------------------------
     -- HELPERS
-    --====================================================
+    ----------------------------------------------------------------
 
-    local function normalizeMode(value)
+    local function normalizeTarget(value)
 
         if value == "Torso" then
             return "Torso"
         end
 
-
         if value == "Random" then
             return "Random"
         end
 
-
         return "Head"
     end
 
+    local function resolveTargetMode(mode)
+
+        mode =
+            normalizeTarget(mode)
+
+        if mode == "Random" then
+
+            if math.random(1, 2) == 1 then
+                return "Head"
+            end
+
+            return "Torso"
+        end
+
+        return mode
+    end
+
+    local function getHead(character)
+
+        if not character then
+            return nil
+        end
+
+        local part =
+            character:FindFirstChild("Head")
+
+        if part
+            and part:IsA("BasePart") then
+
+            return part
+        end
+
+        return nil
+    end
+
+    local function getTorso(character)
+
+        if not character then
+            return nil
+        end
+
+        local part =
+            character:FindFirstChild("UpperTorso")
+            or character:FindFirstChild("Torso")
+            or character:FindFirstChild("HumanoidRootPart")
+
+        if part
+            and part:IsA("BasePart") then
+
+            return part
+        end
+
+        return nil
+    end
+
+    local function getTargetPart(
+        character,
+        mode,
+        resolvedMode
+    )
+
+        local resolved =
+            resolvedMode
+            or resolveTargetMode(mode)
+
+        if resolved == "Torso" then
+
+            return
+                getTorso(character)
+                or getHead(character),
+                "Torso"
+        end
+
+        return
+            getHead(character)
+            or getTorso(character),
+            "Head"
+    end
 
     local function getHumanoid(character)
 
@@ -392,15 +454,13 @@ return function(context)
             return nil
         end
 
-
         return character:
             FindFirstChildOfClass(
                 "Humanoid"
             )
     end
 
-
-    local function characterAlive(character)
+    local function alive(character)
 
         if not character
             or not character.Parent then
@@ -408,22 +468,16 @@ return function(context)
             return false
         end
 
-
         local humanoid =
-            getHumanoid(
-                character
-            )
-
+            getHumanoid(character)
 
         if not humanoid then
             return false
         end
 
-
         if humanoid.Health <= 0 then
             return false
         end
-
 
         if humanoid:GetState()
             == Enum.HumanoidStateType.Dead then
@@ -431,14 +485,12 @@ return function(context)
             return false
         end
 
-
         return true
     end
 
-
-    --====================================================
-    -- DEAD TARGET CACHE
-    --====================================================
+    ----------------------------------------------------------------
+    -- DEAD CACHE
+    ----------------------------------------------------------------
 
     local function markDead(player)
 
@@ -446,20 +498,14 @@ return function(context)
             return
         end
 
-
         state.DeadTargets[player] =
-
             os.clock()
             + Config.DeadTargetBlockTime
 
-
-        if state.LastTarget
-            == player then
-
+        if state.LastTarget == player then
             state.LastTarget = nil
         end
     end
-
 
     local function clearDead(player)
 
@@ -468,17 +514,14 @@ return function(context)
         end
     end
 
-
-    local function cachedDead(player)
+    local function temporarilyDead(player)
 
         local expiry =
             state.DeadTargets[player]
 
-
         if not expiry then
             return false
         end
-
 
         if os.clock() >= expiry then
 
@@ -487,10 +530,8 @@ return function(context)
             return false
         end
 
-
         return true
     end
-
 
     local function validPlayer(player)
 
@@ -500,27 +541,19 @@ return function(context)
             return false
         end
 
-
-        if cachedDead(player) then
+        if temporarilyDead(player) then
             return false
         end
-
 
         local character =
             player.Character
 
+        if not alive(character) then
 
-        if not characterAlive(
-            character
-        ) then
-
-            markDead(
-                player
-            )
+            markDead(player)
 
             return false
         end
-
 
         if character:
             FindFirstChildOfClass(
@@ -530,318 +563,272 @@ return function(context)
             return false
         end
 
-
         return true
     end
 
+    ----------------------------------------------------------------
+    -- GENERIC VISIBILITY TEST
+    --
+    -- IMPORTANT:
+    -- each feature decides whether it wants to call this.
+    ----------------------------------------------------------------
 
-    --====================================================
-    -- TARGET PART VARIATION
-    --====================================================
-
-    local function getHead(character)
-
-        if not character then
-            return nil
-        end
-
-
-        local head =
-            character:
-            FindFirstChild(
-                "Head"
-            )
-
-
-        if head
-            and head:IsA(
-                "BasePart"
-            ) then
-
-            return head
-        end
-
-
-        return nil
-    end
-
-
-    local function getTorso(character)
-
-        if not character then
-            return nil
-        end
-
-
-        local torso =
-
-            character:
-            FindFirstChild(
-                "UpperTorso"
-            )
-
-            or character:
-            FindFirstChild(
-                "Torso"
-            )
-
-            or character:
-            FindFirstChild(
-                "HumanoidRootPart"
-            )
-
-
-        if torso
-            and torso:IsA(
-                "BasePart"
-            ) then
-
-            return torso
-        end
-
-
-        return nil
-    end
-
-
-    local function chooseVariation(
-        mode
-    )
-
-        mode =
-            normalizeMode(
-                mode
-            )
-
-
-        if mode == "Random" then
-
-            return
-
-                math.random(
-                    1,
-                    2
-                ) == 1
-
-                and "Head"
-
-                or "Torso"
-        end
-
-
-        return mode
-    end
-
-
-    local function getVariationPart(
-        character,
-        mode,
-        forcedMode
-    )
-
-        local resolved =
-
-            forcedMode
-
-            or chooseVariation(
-                mode
-            )
-
-
-        if resolved == "Torso" then
-
-            return
-
-                getTorso(
-                    character
-                )
-
-                or getHead(
-                    character
-                ),
-
-                "Torso"
-        end
-
-
-        return
-
-            getHead(
-                character
-            )
-
-            or getTorso(
-                character
-            ),
-
-            "Head"
-    end
-
-
-    --====================================================
-    -- WALL CHECK
-    --====================================================
-
-    local function visible(
+    local function hasVisibility(
         origin,
         part,
-        additionalIgnore
+        extraIgnore
     )
-
-        if not state.WallCheck then
-            return true
-        end
-
 
         if not part then
             return false
         end
 
-
         local params =
             RaycastParams.new()
-
 
         params.FilterType =
             Enum.RaycastFilterType.Exclude
 
-
         params.IgnoreWater =
             true
 
+        local ignore = {}
 
-        local exclusions = {}
-
-
-        if type(additionalIgnore)
+        if type(extraIgnore)
             == "table" then
 
-
             for _, object
-                in ipairs(
-                    additionalIgnore
-                ) do
-
+                in ipairs(extraIgnore) do
 
                 if typeof(object)
                     == "Instance" then
 
-
                     table.insert(
-                        exclusions,
+                        ignore,
                         object
                     )
                 end
             end
         end
 
-
         if LocalPlayer.Character then
 
             table.insert(
-                exclusions,
+                ignore,
                 LocalPlayer.Character
             )
         end
 
-
         params.FilterDescendantsInstances =
-            exclusions
-
+            ignore
 
         local result =
             Workspace:Raycast(
-
                 origin,
-
-                part.Position
-                - origin,
-
+                part.Position - origin,
                 params
-
             )
-
 
         if not result then
             return true
         end
 
-
-        return
-
-            result.Instance
-
+        return result.Instance
             and result.Instance:
                 IsDescendantOf(
                     part.Parent
                 )
     end
 
+    ----------------------------------------------------------------
+    -- PLAYER UNDER CURSOR
+    --
+    -- RESTORED WORKING TRIGGERBOT DETECTOR.
+    --
+    -- It accepts ANY body part belonging to a living player.
+    ----------------------------------------------------------------
 
-    --====================================================
-    -- CLOSEST TARGET
-    --====================================================
+    local function getPlayerUnderCursor()
 
-    local function getClosestTarget(
-        radius,
-        targetMode
+        local target =
+            Mouse.Target
+
+        if not target then
+            return nil
+        end
+
+        local ragdolls =
+            Workspace:
+            FindFirstChild(
+                "Ragdolls"
+            )
+
+        if ragdolls
+            and target:
+                IsDescendantOf(
+                    ragdolls
+                ) then
+
+            return nil
+        end
+
+        local object =
+            target
+
+        while object
+            and object ~= Workspace do
+
+            if object:IsA("Model") then
+
+                local player =
+                    Players:
+                    GetPlayerFromCharacter(
+                        object
+                    )
+
+                if player then
+
+                    if player.Character
+                        ~= object then
+
+                        return nil
+                    end
+
+                    if validPlayer(player) then
+
+                        return
+                            player,
+                            target
+                    end
+
+                    return nil
+                end
+            end
+
+            object =
+                object.Parent
+        end
+
+        return nil
+    end
+
+    ----------------------------------------------------------------
+    -- FEATURE-SPECIFIC WALL CHECKS
+    ----------------------------------------------------------------
+
+    local function passesSilentWallCheck(
+        origin,
+        part,
+        ignore
     )
+
+        if not state.SilentAimWallCheck then
+            return true
+        end
+
+        return hasVisibility(
+            origin,
+            part,
+            ignore
+        )
+    end
+
+    local function passesAimbotWallCheck(
+        part
+    )
+
+        if not state.AimbotWallCheck then
+            return true
+        end
 
         local camera =
             Workspace.CurrentCamera
 
+        if not camera then
+            return false
+        end
+
+        return hasVisibility(
+            camera.CFrame.Position,
+            part
+        )
+    end
+
+    local function passesTriggerWallCheck(
+        player,
+        resolvedMode
+    )
+
+        if not state.TriggerbotWallCheck then
+            return true
+        end
+
+        local camera =
+            Workspace.CurrentCamera
+
+        if not camera then
+            return false
+        end
+
+        local part =
+            getTargetPart(
+                player.Character,
+                state.TriggerbotTarget,
+                resolvedMode
+            )
+
+        if not part then
+            return false
+        end
+
+        return hasVisibility(
+            camera.CFrame.Position,
+            part
+        )
+    end
+
+    ----------------------------------------------------------------
+    -- CLOSEST AIMBOT TARGET
+    ----------------------------------------------------------------
+
+    local function getClosestAimbotTarget()
+
+        local camera =
+            Workspace.CurrentCamera
 
         if not camera then
             return nil
         end
 
-
-        local mousePosition =
+        local cursor =
             Input:GetMouseLocation()
-
 
         local bestPlayer =
             nil
 
-
         local bestPart =
             nil
 
-
         local bestDistance =
-
-            radius
-
-            and radius * radius
-
-            or math.huge
-
+            state.AimbotFOV
+            * state.AimbotFOV
 
         for _, player
             in ipairs(
                 Players:GetPlayers()
             ) do
 
+            if validPlayer(player) then
 
-            if validPlayer(
-                player
-            ) then
-
-
+                -- Aimbot itself remains head-based.
                 local part =
+                    getHead(player.Character)
+                    or getTorso(player.Character)
 
-                    getVariationPart(
-
-                        player.Character,
-
-                        targetMode
-                        or "Head"
-
-                    )
-
-
-                if part then
-
+                if part
+                    and passesAimbotWallCheck(
+                        part
+                    ) then
 
                     local point,
                         onScreen =
@@ -851,269 +838,70 @@ return function(context)
                             part.Position
                         )
 
-
                     if onScreen
                         and point.Z > 0 then
 
-
                         local dx =
-                            point.X
-                            - mousePosition.X
-
+                            point.X - cursor.X
 
                         local dy =
-                            point.Y
-                            - mousePosition.Y
-
+                            point.Y - cursor.Y
 
                         local distance =
-                            dx * dx
-                            + dy * dy
+                            dx * dx + dy * dy
 
-
-                        if distance
-                            < bestDistance
-
-                            and visible(
-
-                                camera.CFrame.Position,
-
-                                part
-
-                            ) then
-
+                        if distance < bestDistance then
 
                             bestDistance =
                                 distance
 
-
                             bestPlayer =
                                 player
 
-
                             bestPart =
                                 part
-
                         end
                     end
                 end
             end
         end
 
-
         return bestPlayer,
             bestPart
     end
 
+    ----------------------------------------------------------------
+    -- PLAYER CONNECTION CLEANUP
+    ----------------------------------------------------------------
 
-    --====================================================
-    -- RAW PLAYER UNDER CURSOR
-    --====================================================
+    local function disconnectPlayer(player)
 
-    local function getRawPlayerUnderCursor()
+        local list =
+            state.PlayerConnections[player]
 
-        local target =
-            Mouse.Target
-
-
-        if not target then
-            return nil
-        end
-
-
-        local ragdolls =
-            Workspace:
-            FindFirstChild(
-                "Ragdolls"
-            )
-
-
-        if ragdolls
-
-            and target:
-            IsDescendantOf(
-                ragdolls
-            ) then
-
-
-            return nil
-        end
-
-
-        local object =
-            target
-
-
-        while object
-            and object ~= Workspace do
-
-
-            if object:IsA(
-                "Model"
-            ) then
-
-
-                local player =
-
-                    Players:
-                    GetPlayerFromCharacter(
-                        object
-                    )
-
-
-                if player then
-
-
-                    if player.Character
-                        ~= object then
-
-                        return nil
-                    end
-
-
-                    if validPlayer(
-                        player
-                    ) then
-
-
-                        return player,
-                            target
-
-                    end
-
-
-                    return nil
-                end
-            end
-
-
-            object =
-                object.Parent
-        end
-
-
-        return nil
-    end
-
-
-    --====================================================
-    -- TRIGGERBOT TARGET VARIATION
-    --====================================================
-
-    local function getTriggerTarget(
-        forcedMode
-    )
-
-        local player,
-            target =
-
-            getRawPlayerUnderCursor()
-
-
-        if not player
-            or not target then
-
-            return nil
-        end
-
-
-        local part,
-            resolved =
-
-            getVariationPart(
-
-                player.Character,
-
-                state.TriggerTargetMode,
-
-                forcedMode
-
-            )
-
-
-        if not part then
-            return nil
-        end
-
-
-        ------------------------------------------------
-        -- Head mode:
-        -- cursor must physically be touching Head.
-        --
-        -- Torso mode:
-        -- cursor must physically be touching Torso.
-        --
-        -- Random:
-        -- randomly resolves to one of those per trigger
-        -- acquisition and stays fixed for verification.
-        ------------------------------------------------
-
-        if target ~= part
-
-            and not target:
-                IsDescendantOf(
-                    part
-                ) then
-
-
-            return nil
-        end
-
-
-        return player,
-            target,
-            resolved
-    end
-
-
-    --====================================================
-    -- PLAYER TRACKING
-    --====================================================
-
-    local function disconnectPlayer(
-        player
-    )
-
-        local connections =
-            state.PlayerConnections[
-                player
-            ]
-
-
-        if not connections then
+        if not list then
             return
         end
 
-
         for _, connection
-            in ipairs(
-                connections
-            ) do
-
+            in ipairs(list) do
 
             pcall(function()
-
-                connection:
-                    Disconnect()
-
+                connection:Disconnect()
             end)
-
         end
 
-
-        state.PlayerConnections[
-            player
-        ] = nil
+        state.PlayerConnections[player] =
+            nil
     end
 
-
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
     -- ESP
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
-    local function formatDistance(
-        studs
-    )
+    local function formatDistance(studs)
 
         if studs < 1000 then
 
@@ -1125,17 +913,13 @@ return function(context)
             )
         end
 
-
         return string.format(
             "%.1fkm",
             studs / 1000
         )
     end
 
-
-    local function healthColour(
-        fraction
-    )
+    local function healthColour(fraction)
 
         fraction =
             math.clamp(
@@ -1143,7 +927,6 @@ return function(context)
                 0,
                 1
             )
-
 
         if fraction > 0.6 then
 
@@ -1171,41 +954,33 @@ return function(context)
         end
     end
 
-
-    local function getEspAnchor(
-        character
-    )
+    local function getESPAnchor(character)
 
         if not character then
             return nil
         end
 
-
-        return
-
-            character:
-            FindFirstChild(
-                "Head"
-            )
-
+        return character:
+            FindFirstChild("Head")
             or character:
-            FindFirstChild(
-                "UpperTorso"
-            )
-
+                FindFirstChild(
+                    "UpperTorso"
+                )
             or character:
-            FindFirstChild(
-                "Torso"
-            )
-
+                FindFirstChild(
+                    "Torso"
+                )
             or character:
-            FindFirstChild(
-                "HumanoidRootPart"
-            )
+                FindFirstChild(
+                    "HumanoidRootPart"
+                )
     end
 
+    ----------------------------------------------------------------
+    -- ORIGINAL ESP LOS BEHAVIOR
+    ----------------------------------------------------------------
 
-    local function espLineOfSight(
+    local function ESPHasLineOfSight(
         fromPart,
         toPart,
         ignoreList
@@ -1217,20 +992,32 @@ return function(context)
             return false
         end
 
+        local params =
+            RaycastParams.new()
+
+        params.FilterType =
+            Enum.RaycastFilterType.Exclude
+
+        params.IgnoreWater =
+            true
+
+        params.FilterDescendantsInstances =
+            ignoreList
+            or {}
+
+        local origin =
+            fromPart.Position
 
         local direction =
             toPart.Position
-            - fromPart.Position
-
+            - origin
 
         local distance =
             direction.Magnitude
 
-
         if distance <= 0.001 then
             return true
         end
-
 
         if distance
             > Config.ESPLOSRange then
@@ -1238,242 +1025,145 @@ return function(context)
             return false
         end
 
-
-        local params =
-            RaycastParams.new()
-
-
-        params.FilterType =
-            Enum.RaycastFilterType.Exclude
-
-
-        params.IgnoreWater =
-            true
-
-
-        params.FilterDescendantsInstances =
-            ignoreList
-            or {}
-
-
         local result =
             Workspace:Raycast(
-
-                fromPart.Position,
-
+                origin,
                 direction,
-
                 params
-
             )
-
 
         if not result then
             return true
         end
 
-
         local hit =
             result.Instance
 
-
-        return
-
-            hit
-
+        if hit
             and (
-
                 hit == toPart
-
                 or hit:
                     IsDescendantOf(
                         toPart.Parent
                     )
+            ) then
 
-            )
+            return true
+        end
+
+        return false
     end
 
-
-    local function applyEspColour(
+    local function applyESPColour(
         attachment,
         isSelf,
         canSeeMe
     )
 
-        if not attachment
-            or not attachment.Highlight then
+        local highlight =
+            attachment
+            and attachment.highlight
 
+        if not highlight then
             return
         end
-
 
         if isSelf then
 
-            attachment.Highlight.FillColor =
-                Config.ESPSelfFill
+            highlight.FillColor =
+                Config.SelfFill
 
-
-            attachment.Highlight.OutlineColor =
-                Config.ESPSelfOutline
-
+            highlight.OutlineColor =
+                Config.SelfOutline
 
             return
         end
-
 
         if canSeeMe then
 
-            attachment.Highlight.FillColor =
-                Config.ESPGreenFill
+            highlight.FillColor =
+                Config.GreenFill
 
-
-            attachment.Highlight.OutlineColor =
-                Config.ESPGreenOutline
+            highlight.OutlineColor =
+                Config.GreenOutline
 
         else
 
-            attachment.Highlight.FillColor =
-                Config.ESPRedFill
+            highlight.FillColor =
+                Config.RedFill
 
-
-            attachment.Highlight.OutlineColor =
-                Config.ESPRedOutline
-
+            highlight.OutlineColor =
+                Config.RedOutline
         end
     end
 
-
-    local function applyEspVisibility(
-        attachment
-    )
-
-        if not attachment then
-            return
-        end
-
-
-        if attachment.Highlight then
-
-            attachment.Highlight.Enabled =
-                state.ESPEnabled
-
-        end
-
-
-        if attachment.Billboard then
-
-            attachment.Billboard.Enabled =
-                state.ESPEnabled
-
-        end
-
-
-        if attachment.NameLabel then
-
-            attachment.NameLabel.Visible =
-                state.ESPNames
-
-        end
-
-
-        if attachment.DistanceLabel then
-
-            attachment.DistanceLabel.Visible =
-                state.ESPDistance
-
-        end
-
-
-        if attachment.HealthLabel then
-
-            attachment.HealthLabel.Visible =
-                state.ESPHealth
-
-        end
-    end
-
-
-    local function removeEsp(
+    local function removeESPAttachment(
         player
     )
 
         local attachment =
-            state.ESPAttachments[
-                player
-            ]
-
+            state.ESPAttachments[player]
 
         if not attachment then
             return
         end
 
-
-        if attachment.Highlight then
-
-            pcall(function()
-
-                attachment.Highlight:
-                    Destroy()
-
-            end)
-
-        end
-
-
-        if attachment.Billboard then
+        if attachment.highlight then
 
             pcall(function()
 
-                attachment.Billboard:
+                attachment.highlight:
                     Destroy()
 
             end)
-
         end
 
+        if attachment.billboard then
 
-        state.ESPAttachments[
-            player
-        ] = nil
+            pcall(function()
+
+                attachment.billboard:
+                    Destroy()
+
+            end)
+        end
+
+        state.ESPAttachments[player] =
+            nil
     end
 
+    ----------------------------------------------------------------
+    -- ORIGINAL BILLBOARD STRUCTURE
+    ----------------------------------------------------------------
 
-    local function createEspBillboard(
+    local function buildESPBillboard(
         character,
         playerName
     )
 
         local anchor =
-            getEspAnchor(
-                character
-            )
-
+            getESPAnchor(character)
 
         if not anchor then
             return nil
         end
-
 
         local billboard =
             Instance.new(
                 "BillboardGui"
             )
 
-
         billboard.Name =
-            "Vitality_KAT_ESP_Label"
-
+            "KAT_ESP_Label"
 
         billboard.Adornee =
             anchor
-
 
         billboard.Size =
             UDim2.fromOffset(
                 220,
                 56
             )
-
 
         billboard.StudsOffsetWorldSpace =
             Vector3.new(
@@ -1482,28 +1172,32 @@ return function(context)
                 0
             )
 
-
         billboard.AlwaysOnTop =
             true
-
 
         billboard.LightInfluence =
             0
 
-
         billboard.MaxDistance =
             5000
 
+        billboard.ResetOnSpawn =
+            false
+
+        ------------------------------------------------------------
+        -- Name
+        ------------------------------------------------------------
 
         local nameLabel =
             Instance.new(
                 "TextLabel"
             )
 
+        nameLabel.Name =
+            "Name"
 
         nameLabel.BackgroundTransparency =
             1
-
 
         nameLabel.Size =
             UDim2.new(
@@ -1513,14 +1207,19 @@ return function(context)
                 20
             )
 
+        nameLabel.Position =
+            UDim2.new(
+                0,
+                0,
+                0,
+                0
+            )
 
         nameLabel.Font =
             Enum.Font.GothamBold
 
-
         nameLabel.TextSize =
             15
-
 
         nameLabel.TextColor3 =
             Color3.fromRGB(
@@ -1529,46 +1228,37 @@ return function(context)
                 250
             )
 
-
         nameLabel.TextStrokeTransparency =
             0
 
-
         nameLabel.TextStrokeColor3 =
-            Color3.new(
+            Color3.fromRGB(
                 0,
                 0,
                 0
             )
 
-
         nameLabel.Text =
             playerName
             or ""
 
-
         nameLabel.Parent =
             billboard
 
+        ------------------------------------------------------------
+        -- Distance
+        ------------------------------------------------------------
 
         local distanceLabel =
             Instance.new(
                 "TextLabel"
             )
 
+        distanceLabel.Name =
+            "Distance"
 
         distanceLabel.BackgroundTransparency =
             1
-
-
-        distanceLabel.Position =
-            UDim2.new(
-                0,
-                0,
-                0,
-                20
-            )
-
 
         distanceLabel.Size =
             UDim2.new(
@@ -1578,14 +1268,19 @@ return function(context)
                 16
             )
 
+        distanceLabel.Position =
+            UDim2.new(
+                0,
+                0,
+                0,
+                20
+            )
 
         distanceLabel.Font =
             Enum.Font.Gotham
 
-
         distanceLabel.TextSize =
             12
-
 
         distanceLabel.TextColor3 =
             Color3.fromRGB(
@@ -1594,47 +1289,38 @@ return function(context)
                 210
             )
 
-
         distanceLabel.TextStrokeTransparency =
             0
 
-
         distanceLabel.TextStrokeColor3 =
-            Color3.new(
+            Color3.fromRGB(
                 0,
                 0,
                 0
             )
 
-
         distanceLabel.Text =
             "—"
-
 
         distanceLabel.Parent =
             billboard
 
+        ------------------------------------------------------------
+        -- Health
+        ------------------------------------------------------------
 
-        local healthLabel =
+        local hpLabel =
             Instance.new(
                 "TextLabel"
             )
 
+        hpLabel.Name =
+            "Health"
 
-        healthLabel.BackgroundTransparency =
+        hpLabel.BackgroundTransparency =
             1
 
-
-        healthLabel.Position =
-            UDim2.new(
-                0,
-                0,
-                0,
-                36
-            )
-
-
-        healthLabel.Size =
+        hpLabel.Size =
             UDim2.new(
                 1,
                 0,
@@ -1642,460 +1328,433 @@ return function(context)
                 14
             )
 
+        hpLabel.Position =
+            UDim2.new(
+                0,
+                0,
+                0,
+                36
+            )
 
-        healthLabel.Font =
+        hpLabel.Font =
             Enum.Font.Gotham
 
-
-        healthLabel.TextSize =
+        hpLabel.TextSize =
             11
 
-
-        healthLabel.TextColor3 =
+        hpLabel.TextColor3 =
             Color3.fromRGB(
                 180,
                 255,
                 200
             )
 
-
-        healthLabel.TextStrokeTransparency =
+        hpLabel.TextStrokeTransparency =
             0
 
-
-        healthLabel.TextStrokeColor3 =
-            Color3.new(
+        hpLabel.TextStrokeColor3 =
+            Color3.fromRGB(
                 0,
                 0,
                 0
             )
 
-
-        healthLabel.Text =
+        hpLabel.Text =
             "—"
 
-
-        healthLabel.Parent =
+        hpLabel.Parent =
             billboard
 
+        ------------------------------------------------------------
+        -- ORIGINAL ESP PARENT
+        ------------------------------------------------------------
 
         billboard.Parent =
-            EspParent
-
+            CoreGui
 
         return
-
             billboard,
-
             nameLabel,
-
             distanceLabel,
-
-            healthLabel
+            hpLabel
     end
 
-
-    local function attachEsp(
+    local function addESPAttachment(
         player,
         character
     )
 
-        removeEsp(
+        removeESPAttachment(
             player
         )
 
-
-        if not character then
-            return
-        end
-
-
-        local anchor =
-            getEspAnchor(
-                character
-            )
-
-
-        if not anchor then
-            return
-        end
-
-
         local isSelf =
             player == LocalPlayer
-
 
         local highlight =
             Instance.new(
                 "Highlight"
             )
 
-
         highlight.Name =
-            "Vitality_KAT_ESP"
-
+            "KAT_ESP_Highlight"
 
         highlight.Adornee =
             character
 
-
         highlight.DepthMode =
             Enum.HighlightDepthMode.AlwaysOnTop
 
-
         highlight.FillTransparency =
-            1
-            - Config.ESPFillAlpha
-
+            1 - Config.FillAlpha
 
         highlight.OutlineTransparency =
-            1
-            - Config.ESPOutlineAlpha
+            1 - Config.OutlineAlpha
 
+        ------------------------------------------------------------
+        -- ORIGINAL ESP PARENT
+        ------------------------------------------------------------
 
         highlight.Parent =
-            EspParent
-
+            CoreGui
 
         local billboard,
             nameLabel,
             distanceLabel,
-            healthLabel =
+            hpLabel =
 
-            createEspBillboard(
-
+            buildESPBillboard(
                 character,
-
                 player.Name
-
             )
-
 
         local attachment = {
 
-            Highlight =
+            highlight =
                 highlight,
 
-            Billboard =
+            billboard =
                 billboard,
 
-            NameLabel =
+            nameLabel =
                 nameLabel,
 
-            DistanceLabel =
+            distLabel =
                 distanceLabel,
 
-            HealthLabel =
-                healthLabel,
+            hpLabel =
+                hpLabel,
 
-            Character =
+            character =
                 character,
 
-            IsSelf =
-                isSelf,
-
-            CanSeeMe =
+            canSeeMe =
                 false,
 
-            LastLOS =
+            lastLOSCheck =
                 0,
+
+            isSelf =
+                isSelf,
         }
 
+        state.ESPAttachments[player] =
+            attachment
 
-        state.ESPAttachments[
-            player
-        ] = attachment
-
-
-        applyEspColour(
+        applyESPColour(
             attachment,
             isSelf,
             false
         )
 
+        ------------------------------------------------------------
+        -- Apply current module toggle values
+        ------------------------------------------------------------
 
-        applyEspVisibility(
-            attachment
-        )
+        highlight.Enabled =
+            state.ESPEnabled
+
+        if billboard then
+            billboard.Enabled =
+                state.ESPEnabled
+        end
+
+        if nameLabel then
+            nameLabel.Visible =
+                state.ESPShowNames
+        end
+
+        if distanceLabel then
+            distanceLabel.Visible =
+                state.ESPShowDistance
+        end
+
+        if hpLabel then
+            hpLabel.Visible =
+                state.ESPShowHealth
+        end
     end
 
+    ----------------------------------------------------------------
+    -- CHARACTER ADDED
+    --
+    -- RESTORED ORIGINAL WAIT ORDER.
+    ----------------------------------------------------------------
 
-    --====================================================
-    -- PLAYER LIFE CYCLE
-    --====================================================
-
-    local function watchCharacter(
+    local function onCharacterAdded(
         player,
         character
     )
 
-        clearDead(
-            player
-        )
-
-
-        attachEsp(
-            player,
-            character
-        )
-
-
-        state.PlayerConnections[player] =
-            state.PlayerConnections[player]
-            or {}
-
-
         local humanoid =
-
             character:
             WaitForChild(
                 "Humanoid",
-                8
+                5
             )
-
 
         if not humanoid then
             return
         end
 
+        local anchor =
+            getESPAnchor(character)
+
+        if not anchor then
+
+            anchor =
+                character:
+                WaitForChild(
+                    "HumanoidRootPart",
+                    5
+                )
+        end
+
+        if not anchor then
+            return
+        end
+
+        addESPAttachment(
+            player,
+            character
+        )
+
+        clearDead(player)
+
+        ------------------------------------------------------------
+        -- Death watchers
+        ------------------------------------------------------------
+
+        state.PlayerConnections[player] =
+            state.PlayerConnections[player]
+            or {}
 
         table.insert(
-
             state.PlayerConnections[player],
 
             humanoid.Died:
             Connect(function()
 
-                markDead(
-                    player
-                )
-
-            end)
-
-        )
-
-
-        table.insert(
-
-            state.PlayerConnections[player],
-
-            humanoid.HealthChanged:
-            Connect(function(
-                health
-            )
-
-
-                if health <= 0 then
-
-                    markDead(
-                        player
-                    )
-
+                if player ~= LocalPlayer then
+                    markDead(player)
                 end
 
             end)
+        )
 
+        table.insert(
+            state.PlayerConnections[player],
+
+            humanoid.HealthChanged:
+            Connect(function(health)
+
+                if health <= 0
+                    and player ~= LocalPlayer then
+
+                    markDead(player)
+                end
+
+            end)
         )
     end
 
+    local function onPlayerAdded(player)
 
-    local function watchPlayer(
-        player
-    )
-
-        disconnectPlayer(
-            player
-        )
-
+        disconnectPlayer(player)
 
         state.PlayerConnections[player] =
             {}
 
-
         table.insert(
-
             state.PlayerConnections[player],
 
             player.CharacterAdded:
-            Connect(function(
-                character
-            )
-
-
-                clearDead(
-                    player
-                )
-
+            Connect(function(character)
 
                 task.spawn(
-                    watchCharacter,
+                    onCharacterAdded,
                     player,
                     character
                 )
 
             end)
-
         )
 
-
         table.insert(
-
             state.PlayerConnections[player],
 
             player.CharacterRemoving:
             Connect(function()
 
-
-                if player ~= LocalPlayer then
-
-                    markDead(
-                        player
-                    )
-
-                end
-
-
-                removeEsp(
+                removeESPAttachment(
                     player
                 )
 
+                if player ~= LocalPlayer then
+                    markDead(player)
+                end
+
             end)
-
         )
-
 
         if player.Character then
 
             task.spawn(
-
-                watchCharacter,
-
+                onCharacterAdded,
                 player,
-
                 player.Character
-
             )
-
         end
     end
 
+    local function onPlayerRemoving(player)
+
+        disconnectPlayer(player)
+
+        removeESPAttachment(
+            player
+        )
+
+        state.DeadTargets[player] =
+            nil
+    end
 
     for _, player
         in ipairs(
             Players:GetPlayers()
         ) do
 
-
-        watchPlayer(
-            player
-        )
-
+        onPlayerAdded(player)
     end
 
-
     table.insert(
-
         state.Connections,
 
         Players.PlayerAdded:
         Connect(
-            watchPlayer
+            onPlayerAdded
         )
-
     )
 
-
     table.insert(
-
         state.Connections,
 
         Players.PlayerRemoving:
-        Connect(function(
-            player
+        Connect(
+            onPlayerRemoving
         )
-
-
-            disconnectPlayer(
-                player
-            )
-
-
-            removeEsp(
-                player
-            )
-
-
-            state.DeadTargets[
-                player
-            ] = nil
-
-        end)
-
     )
 
+    ----------------------------------------------------------------
+    -- ESP VISIBILITY
+    ----------------------------------------------------------------
 
-    --====================================================
-    -- ESP UPDATE LOOP
-    --====================================================
+    local function refreshESPVisibility()
 
-    local espAccumulator =
+        for _, attachment
+            in pairs(
+                state.ESPAttachments
+            ) do
+
+            if attachment.highlight then
+
+                attachment.highlight.Enabled =
+                    state.ESPEnabled
+            end
+
+            if attachment.billboard then
+
+                attachment.billboard.Enabled =
+                    state.ESPEnabled
+            end
+
+            if attachment.nameLabel then
+
+                attachment.nameLabel.Visible =
+                    state.ESPShowNames
+            end
+
+            if attachment.distLabel then
+
+                attachment.distLabel.Visible =
+                    state.ESPShowDistance
+            end
+
+            if attachment.hpLabel then
+
+                attachment.hpLabel.Visible =
+                    state.ESPShowHealth
+            end
+        end
+    end
+
+    ----------------------------------------------------------------
+    -- ORIGINAL ESP UPDATE LOOP
+    ----------------------------------------------------------------
+
+    local lastESPUpdate =
         0
 
-
     table.insert(
-
         state.Connections,
 
         RunService.Heartbeat:
         Connect(function(dt)
 
-
             if not state.Alive then
                 return
             end
 
+            lastESPUpdate += dt
 
-            espAccumulator += dt
-
-
-            if espAccumulator
+            if lastESPUpdate
                 < 1 / 15 then
 
                 return
             end
 
-
-            espAccumulator =
+            lastESPUpdate =
                 0
-
 
             local myCharacter =
                 LocalPlayer.Character
 
-
             local myRoot =
-
                 myCharacter
-
                 and myCharacter:
                     FindFirstChild(
                         "HumanoidRootPart"
                     )
 
-
             local myHead =
-
                 myCharacter
-
                 and myCharacter:
                     FindFirstChild(
                         "Head"
                     )
 
-
             local now =
                 os.clock()
-
 
             for player,
                 attachment
@@ -2104,81 +1763,61 @@ return function(context)
                     state.ESPAttachments
                 ) do
 
-
                 if not player.Parent then
 
-                    removeEsp(
+                    removeESPAttachment(
                         player
                     )
 
                     continue
                 end
-
 
                 local character =
                     player.Character
 
-
                 if not character
                     or not character.Parent then
 
-
-                    removeEsp(
+                    removeESPAttachment(
                         player
                     )
-
 
                     continue
                 end
 
-
-                if attachment.Character
+                if attachment.character
                     ~= character then
 
-
-                    attachEsp(
+                    task.spawn(
+                        onCharacterAdded,
                         player,
                         character
                     )
 
-
                     continue
                 end
 
-
-                applyEspVisibility(
-                    attachment
-                )
-
-
-                if attachment.Highlight
-
-                    and attachment.Highlight.Adornee
+                if attachment.highlight
+                    and attachment.highlight.Adornee
                         ~= character then
 
-
-                    attachment.Highlight.Adornee =
+                    attachment.highlight.Adornee =
                         character
                 end
 
-
-                ------------------------------------------------
+                --------------------------------------------------------
                 -- LOS
-                ------------------------------------------------
+                --------------------------------------------------------
 
-                if not attachment.IsSelf
+                if not attachment.isSelf
 
                     and (
-
                         now
-                        - attachment.LastLOS
-
+                        - attachment.lastLOSCheck
                     ) >= Config.ESPLOSInterval then
 
-
-                    attachment.LastLOS =
+                    attachment.lastLOSCheck =
                         now
-
 
                     local theirHead =
                         character:
@@ -2186,123 +1825,108 @@ return function(context)
                             "Head"
                         )
 
-
-                    local canSee =
-                        false
-
-
                     if theirHead
                         and myHead
                         and myRoot then
 
+                        local ignore = {
+                            character,
+                            myCharacter,
+                        }
 
-                        canSee =
+                        local canSee =
 
-                            espLineOfSight(
-
+                            ESPHasLineOfSight(
                                 theirHead,
-
                                 myHead,
-
-                                {
-                                    character,
-                                    myCharacter,
-                                }
-
+                                ignore
                             )
 
-                    end
+                        if canSee
+                            ~= attachment.canSeeMe then
 
+                            attachment.canSeeMe =
+                                canSee
 
-                    if canSee
-                        ~= attachment.CanSeeMe then
+                            applyESPColour(
+                                attachment,
+                                false,
+                                canSee
+                            )
+                        end
 
+                    else
 
-                        attachment.CanSeeMe =
-                            canSee
+                        if attachment.canSeeMe then
 
+                            attachment.canSeeMe =
+                                false
 
-                        applyEspColour(
-
-                            attachment,
-
-                            false,
-
-                            canSee
-
-                        )
-
+                            applyESPColour(
+                                attachment,
+                                false,
+                                false
+                            )
+                        end
                     end
                 end
 
+                --------------------------------------------------------
+                -- Distance
+                --------------------------------------------------------
 
-                ------------------------------------------------
-                -- DISTANCE
-                ------------------------------------------------
+                if state.ESPShowDistance
+                    and attachment.distLabel then
 
-                if state.ESPDistance
-                    and attachment.DistanceLabel then
+                    local part =
+                        getESPAnchor(character)
 
-
-                    local anchor =
-                        getEspAnchor(
-                            character
-                        )
-
-
-                    if anchor
+                    if part
                         and myRoot then
 
+                        local distance =
 
-                        attachment.DistanceLabel.Text =
+                            (
+                                part.Position
+                                - myRoot.Position
+                            ).Magnitude
+
+                        attachment.distLabel.Text =
 
                             formatDistance(
-
-                                (
-                                    anchor.Position
-                                    - myRoot.Position
-                                ).Magnitude
-
+                                distance
                             )
-
                     end
                 end
 
+                --------------------------------------------------------
+                -- Health
+                --------------------------------------------------------
 
-                ------------------------------------------------
-                -- HEALTH
-                ------------------------------------------------
-
-                if state.ESPHealth
-                    and attachment.HealthLabel then
-
+                if state.ESPShowHealth
+                    and attachment.hpLabel then
 
                     local humanoid =
-                        getHumanoid(
-                            character
+                        character:
+                        FindFirstChildOfClass(
+                            "Humanoid"
                         )
-
 
                     if humanoid then
 
-
-                        local maximum =
+                        local maxHP =
                             math.max(
                                 humanoid.MaxHealth,
                                 1
                             )
 
-
-                        local percent =
-
+                        local fraction =
                             humanoid.Health
-                            / maximum
+                            / maxHP
 
-
-                        attachment.HealthLabel.Text =
+                        attachment.hpLabel.Text =
 
                             string.format(
-
                                 "%d / %d",
 
                                 math.floor(
@@ -2311,48 +1935,40 @@ return function(context)
                                 ),
 
                                 math.floor(
-                                    maximum
-                                    + 0.5
+                                    maxHP + 0.5
                                 )
-
                             )
 
-
-                        attachment.HealthLabel.TextColor3 =
+                        attachment.hpLabel.TextColor3 =
 
                             healthColour(
-                                percent
+                                fraction
                             )
                     end
                 end
             end
 
         end)
-
     )
 
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
+    -- WEAPON DETECTION
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
-    --====================================================
-    -- WEAPON CLASSIFICATION
-    --====================================================
-
-    local function classifyWeapon(
-        object
-    )
+    local function classifyWeapon(object)
 
         if not object then
             return "None"
         end
-
 
         local name =
             string.lower(
                 object.Name
             )
 
-
         if name == "knife"
-
             or string.find(
                 name,
                 "knife",
@@ -2360,13 +1976,10 @@ return function(context)
                 true
             ) then
 
-
             return "Knife"
         end
 
-
         if name == "revolver"
-
             or string.find(
                 name,
                 "revolver",
@@ -2374,94 +1987,69 @@ return function(context)
                 true
             ) then
 
-
             return "Revolver"
         end
 
-
         return "Other"
     end
-
 
     local function scanEquippedWeapon()
 
         local character =
             LocalPlayer.Character
 
-
         if not character then
             return nil, "None"
         end
 
-
-        local recognized = {}
+        local recognized =
+            {}
 
         local otherTool =
             nil
-
 
         for _, object
             in ipairs(
                 character:GetChildren()
             ) do
 
-
             local weaponType =
-                classifyWeapon(
-                    object
-                )
-
+                classifyWeapon(object)
 
             if weaponType == "Knife"
                 or weaponType == "Revolver" then
 
-
                 table.insert(
-
                     recognized,
-
                     {
-                        Object =
-                            object,
-
-                        Type =
-                            weaponType,
+                        Object = object,
+                        Type = weaponType,
                     }
-
                 )
 
-
-            elseif object:IsA(
-                "Tool"
-            ) then
-
+            elseif object:IsA("Tool") then
 
                 otherTool =
-                    otherTool
-                    or object
+                    otherTool or object
             end
         end
 
-
-        ------------------------------------------------
-        -- One recognized weapon
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Exactly one recognized equipped weapon
+        ------------------------------------------------------------
 
         if #recognized == 1 then
 
             return
-
                 recognized[1].Object,
-
                 recognized[1].Type
         end
 
-
-        ------------------------------------------------
-        -- Both briefly present during switch.
+        ------------------------------------------------------------
+        -- Both can briefly exist during switch.
         --
-        -- Neither combat path is allowed.
-        ------------------------------------------------
+        -- Run neither combat system.
+        ------------------------------------------------------------
 
         if #recognized > 1 then
 
@@ -2469,27 +2057,20 @@ return function(context)
                 "Transition"
         end
 
-
         if otherTool then
-
-            return otherTool,
-                "Other"
+            return otherTool, "Other"
         end
 
-
-        return nil,
-            "None"
+        return nil, "None"
     end
 
-
-    --====================================================
-    -- WEAPON EVENT LISTENER
-    --====================================================
+    ----------------------------------------------------------------
+    -- WEAPON RESET
+    ----------------------------------------------------------------
 
     local function disconnectWeaponEvent()
 
         if state.WeaponEventConnection then
-
 
             pcall(function()
 
@@ -2498,66 +2079,56 @@ return function(context)
 
             end)
 
-
             state.WeaponEventConnection =
                 nil
         end
     end
-
 
     local function resetKnifeState()
 
         state.KnifeCharging =
             false
 
-
         state.KnifeInputHeld =
             false
-
 
         state.KnifeReleaseBusy =
             false
 
-
         state.KnifeChargeStarted =
             0
-
 
         state.NextKnifeChargeAttempt =
             0
     end
-
 
     local function resetRevolverState()
 
         state.RevolverBusy =
             false
 
-
         state.RevolverPrimed =
             false
-
 
         state.RevolverAmmo =
             nil
 
-
         state.RevolverReserve =
             nil
-
 
         state.RevolverReloading =
             false
 
-
         state.LastReloadAttempt =
             0
-
 
         state.LastRevolverShot =
             0
     end
 
+    ----------------------------------------------------------------
+    -- REVOLVER SERVER EVENT TRACKING
+    ----------------------------------------------------------------
 
     local function bindRevolverEvents(
         weapon,
@@ -2566,28 +2137,22 @@ return function(context)
 
         disconnectWeaponEvent()
 
-
         if not weapon
-
             or weapon.Parent
                 ~= LocalPlayer.Character then
-
 
             return
         end
 
-
-        local clientEvent =
+        local event =
             weapon:
             FindFirstChild(
                 "ClientEvent"
             )
 
+        if not event then
 
-        if not clientEvent then
-
-            clientEvent =
-
+            event =
                 weapon:
                 WaitForChild(
                     "ClientEvent",
@@ -2595,27 +2160,22 @@ return function(context)
                 )
         end
 
-
-        if not clientEvent
-
-            or not clientEvent:
+        if not event
+            or not event:
                 IsA(
                     "RemoteEvent"
                 ) then
 
-
             return
         end
 
-
         state.WeaponEventConnection =
 
-            clientEvent.OnClientEvent:
+            event.OnClientEvent:
             Connect(function(
                 command,
                 data
             )
-
 
                 if state.WeaponEpoch
                     ~= epoch
@@ -2626,10 +2186,8 @@ return function(context)
                     or state.WeaponType
                         ~= "Revolver" then
 
-
                     return
                 end
-
 
                 if command
                     == "ServerAmmoValues"
@@ -2637,18 +2195,15 @@ return function(context)
                     and type(data)
                         == "table" then
 
-
                     local loaded =
                         tonumber(
                             data[1]
                         )
 
-
                     local reserve =
                         tonumber(
                             data[2]
                         )
-
 
                     if loaded ~= nil then
 
@@ -2656,21 +2211,17 @@ return function(context)
                             loaded
                     end
 
-
                     if reserve ~= nil then
 
                         state.RevolverReserve =
                             reserve
                     end
 
-
                     if loaded
                         and loaded > 0 then
 
-
                         state.RevolverReloading =
                             false
-
 
                         state.RevolverBusy =
                             false
@@ -2679,6 +2230,9 @@ return function(context)
             end)
     end
 
+    ----------------------------------------------------------------
+    -- REVOLVER EQUIP SETTLE
+    ----------------------------------------------------------------
 
     local function primeRevolver(
         weapon,
@@ -2688,7 +2242,6 @@ return function(context)
         task.wait(
             Config.RevolverEquipSettle
         )
-
 
         if state.WeaponEpoch
             ~= epoch
@@ -2702,20 +2255,15 @@ return function(context)
             or weapon.Parent
                 ~= LocalPlayer.Character then
 
-
             return
         end
 
-
-        ------------------------------------------------
-        -- We are CERTAIN Revolver is equipped now.
-        --
-        -- Safe place to clear stale knife mouse state.
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Only release stale mouse input AFTER gun is confirmed.
+        ------------------------------------------------------------
 
         if type(firesignal)
             == "function" then
-
 
             pcall(function()
 
@@ -2724,30 +2272,28 @@ return function(context)
                 )
 
             end)
-
         end
-
 
         if type(mouse1release)
             == "function" then
-
 
             pcall(
                 mouse1release
             )
         end
 
-
         bindRevolverEvents(
             weapon,
             epoch
         )
 
-
         state.RevolverPrimed =
             true
     end
 
+    ----------------------------------------------------------------
+    -- WEAPON CHANGE
+    ----------------------------------------------------------------
 
     local function updateEquippedWeapon()
 
@@ -2756,34 +2302,30 @@ return function(context)
 
             scanEquippedWeapon()
 
-
         if weapon == state.Weapon
-
             and weaponType
                 == state.WeaponType then
-
 
             return
         end
 
-
         local oldType =
             state.WeaponType
 
-
         disconnectWeaponEvent()
 
-
-        ------------------------------------------------
-        -- INVALIDATE every async task from old weapon.
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Invalidates ALL old async weapon tasks.
+        ------------------------------------------------------------
 
         state.WeaponEpoch += 1
-
 
         local epoch =
             state.WeaponEpoch
 
+        ------------------------------------------------------------
+        -- STATE ONLY during ambiguous switch.
+        ------------------------------------------------------------
 
         if oldType == "Knife" then
 
@@ -2794,157 +2336,165 @@ return function(context)
             resetRevolverState()
         end
 
-
         state.Weapon =
             weapon
-
 
         state.WeaponType =
             weaponType
 
-
         state.WeaponChangedAt =
             os.clock()
 
-
-        ------------------------------------------------
-        -- KNIFE
-        ------------------------------------------------
-
         if weaponType == "Knife" then
 
-
             resetKnifeState()
-
 
             state.NextKnifeChargeAttempt =
 
                 os.clock()
                 + Config.KnifeEquipSettle
 
-
             return
         end
-
-
-        ------------------------------------------------
-        -- REVOLVER
-        ------------------------------------------------
 
         if weaponType == "Revolver" then
 
-
             resetRevolverState()
 
-
             task.spawn(
-
                 primeRevolver,
-
                 weapon,
-
                 epoch
-
             )
-
 
             return
         end
 
-
-        ------------------------------------------------
-        -- NONE / OTHER / TRANSITION
-        ------------------------------------------------
-
         resetKnifeState()
-
         resetRevolverState()
     end
 
-
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
     -- SILENT AIM
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
     local function selectSilentRay(
         ray,
-        ignoreList
+        ignoreList,
+        ignoreWater
     )
 
-        if not state.SilentAimEnabled then
+        local camera =
+            Workspace.CurrentCamera
+
+        local character =
+            LocalPlayer.Character
+
+        local humanoid =
+            character
+            and character:
+                FindFirstChildOfClass(
+                    "Humanoid"
+                )
+
+        if not state.Alive
+            or not state.SilentAimEnabled
+            or not camera
+            or not humanoid
+            or humanoid.Health <= 0 then
+
             return nil
         end
 
+        if typeof(ray) ~= "Ray"
+            or type(ignoreList)
+                ~= "table" then
 
-        if typeof(ray) ~= "Ray" then
             return nil
         end
-
 
         local magnitude =
             ray.Direction.Magnitude
 
-
         if magnitude ~= magnitude
-
             or magnitude == math.huge
-
             or magnitude
                 < Config.MinimumRayLength then
 
-
             return nil
         end
 
+        state.LastRayMag =
+            magnitude
 
-        ------------------------------------------------
+        state.Matched += 1
+
+        ------------------------------------------------------------
         -- HIT CHANCE
-        ------------------------------------------------
+        ------------------------------------------------------------
 
         local chance =
             math.clamp(
-
                 tonumber(
                     state.SilentAimHitChance
                 ) or 100,
-
                 0,
-
                 100
-
             )
-
 
         if chance <= 0 then
 
-            state.MissedChance += 1
+            state.ChanceMiss += 1
 
             return nil
         end
 
-
         if chance < 100
-
             and math.random(
                 1,
                 100
             ) > chance then
 
-
-            state.MissedChance += 1
+            state.ChanceMiss += 1
 
             return nil
         end
 
+        ------------------------------------------------------------
+        -- ORIGINAL IGNORE BEHAVIOR
+        ------------------------------------------------------------
 
-        local camera =
-            Workspace.CurrentCamera
+        local ignore =
+            {}
 
+        for _, object
+            in ipairs(
+                ignoreList
+            ) do
 
-        if not camera then
-            return nil
+            if typeof(object)
+                == "Instance" then
+
+                table.insert(
+                    ignore,
+                    object
+                )
+            end
         end
 
+        if character then
+
+            table.insert(
+                ignore,
+                character
+            )
+        end
+
+        ------------------------------------------------------------
+        -- TARGET SELECTION
+        ------------------------------------------------------------
 
         local bestDistance =
 
@@ -2953,113 +2503,92 @@ return function(context)
             and math.huge
 
             or (
-
                 state.SilentAimRadius
                 * state.SilentAimRadius
-
             )
 
-
-        local bestPart =
+        local bestPosition =
             nil
 
-
-        state.Matched += 1
-
+        local bestPlayer =
+            nil
 
         for _, player
             in ipairs(
                 Players:GetPlayers()
             ) do
 
+            if validPlayer(player) then
 
-            if validPlayer(
-                player
-            ) then
-
+                local model =
+                    player.Character
 
                 local part =
-
-                    getVariationPart(
-
-                        player.Character,
-
-                        state.SilentAimTargetMode
-
+                    getTargetPart(
+                        model,
+                        state.SilentAimTarget
                     )
-
 
                 if part then
 
-
-                    local direction =
+                    local position =
                         part.Position
-                        - ray.Origin
 
+                    local point,
+                        onScreen =
 
-                    local length =
-                        direction.Magnitude
+                        camera:
+                        WorldToScreenPoint(
+                            position
+                        )
 
+                    if onScreen
+                        and point.Z > 0 then
 
-                    if length > 0.001
+                        local dx =
+                            point.X
+                            - Mouse.X
 
-                        and length
-                            <= magnitude then
+                        local dy =
+                            point.Y
+                            - Mouse.Y
 
+                        local distance =
+                            dx * dx
+                            + dy * dy
 
-                        local point,
-                            onScreen =
+                        local direction =
+                            position
+                            - ray.Origin
 
-                            camera:
-                            WorldToViewportPoint(
-                                part.Position
-                            )
+                        local length =
+                            direction.Magnitude
 
+                        if distance <= bestDistance
+                            and length > 0.001
+                            and length <= magnitude then
 
-                        if onScreen
-                            and point.Z > 0 then
+                            ------------------------------------------------
+                            -- SILENT AIM'S OWN WALL CHECK ONLY
+                            ------------------------------------------------
 
-
-                            local dx =
-                                point.X
-                                - Mouse.X
-
-
-                            local dy =
-                                point.Y
-                                - Mouse.Y
-
-
-                            local distance =
-                                dx * dx
-                                + dy * dy
-
-
-                            if distance
-                                < bestDistance
-
-                                and visible(
-
+                            local visible =
+                                passesSilentWallCheck(
                                     ray.Origin,
-
                                     part,
+                                    ignore
+                                )
 
-                                    ignoreList
-
-                                ) then
-
+                            if visible then
 
                                 bestDistance =
                                     distance
 
+                                bestPosition =
+                                    position
 
-                                bestPart =
-                                    part
-
-
-                                state.LastTarget =
-                                    player.Name
-
+                                bestPlayer =
+                                    player
                             end
                         end
                     end
@@ -3067,41 +2596,37 @@ return function(context)
             end
         end
 
-
-        if not bestPart then
-            return nil
+        if bestPlayer then
+            state.LastTarget =
+                bestPlayer.Name
         end
 
+        if bestPosition then
 
-        local direction =
-            bestPart.Position
-            - ray.Origin
+            state.Redirected += 1
 
+            return Ray.new(
 
-        if direction.Magnitude
-            <= 0.001 then
+                ray.Origin,
 
-            return nil
+                (
+                    bestPosition
+                    - ray.Origin
+                ).Unit
+                * magnitude
+            )
         end
 
+        state.NoTarget += 1
 
-        state.Redirected += 1
-
-
-        return Ray.new(
-
-            ray.Origin,
-
-            direction.Unit
-            * magnitude
-
-        )
+        return nil
     end
 
-
-    --====================================================
-    -- PERSISTENT NAMECALL ROUTER
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
+    -- NAMECALL ROUTER
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
     local router =
         rawget(
@@ -3109,20 +2634,13 @@ return function(context)
             ROUTER_KEY
         )
 
-
     if type(router)
         ~= "table" then
 
-
         router = {
-
             Installed = false,
-
             Owner = nil,
-
-            Original = nil,
         }
-
 
         rawset(
             _G,
@@ -3131,6 +2649,8 @@ return function(context)
         )
     end
 
+    state.SelectRay =
+        selectSilentRay
 
     local function handleNamecall(
         selfObject,
@@ -3138,9 +2658,9 @@ return function(context)
         args
     )
 
-        ------------------------------------------------
-        -- OBSERVE KNIFE / REVOLVER OUTGOING EVENTS
-        ------------------------------------------------
+        ----------------------------------------------------------------
+        -- KNIFE / REVOLVER EVENTS
+        ----------------------------------------------------------------
 
         if method == "FireServer"
 
@@ -3150,18 +2670,15 @@ return function(context)
             and selfObject.Name
                 == "ClientEvent" then
 
-
             local weapon =
                 selfObject.Parent
-
 
             local command =
                 args[1]
 
-
-            ------------------------------------------------
-            -- KNIFE
-            ------------------------------------------------
+            ------------------------------------------------------------
+            -- Knife
+            ------------------------------------------------------------
 
             if state.WeaponType
                 == "Knife"
@@ -3169,58 +2686,45 @@ return function(context)
                 and weapon
                     == state.Weapon then
 
-
                 if command
                     == "StartCharge" then
-
 
                     state.KnifeCharging =
                         true
 
-
                     state.KnifeInputHeld =
                         true
-
 
                     state.KnifeChargeStarted =
                         os.clock()
 
-
                     state.LastKnifeStartCharge =
                         state.KnifeChargeStarted
-
 
                 elseif command
                     == "ChargeRelease" then
 
-
                     state.KnifeCharging =
                         false
-
 
                     state.KnifeInputHeld =
                         false
 
-
                     state.KnifeReleaseBusy =
                         false
 
-
                     state.LastKnifeChargeRelease =
                         os.clock()
-
 
                     state.NextKnifeChargeAttempt =
 
                         os.clock()
                         + Config.KnifeRearmDelay
-
                 end
 
-
-            ------------------------------------------------
-            -- REVOLVER
-            ------------------------------------------------
+            ------------------------------------------------------------
+            -- Revolver
+            ------------------------------------------------------------
 
             elseif state.WeaponType
                 == "Revolver"
@@ -3228,30 +2732,20 @@ return function(context)
                 and weapon
                     == state.Weapon then
 
-
                 if command
                     == "WeaponFired" then
-
 
                     state.LastWeaponFired =
                         os.clock()
 
-
                 elseif command
                     == "ReloadUpdate"
 
-                    and type(
-                        args[2]
-                    ) == "table" then
+                    and type(args[2])
+                        == "table" then
 
-
-                    local reloadState =
-                        args[2][1]
-
-
-                    if reloadState
+                    if args[2][1]
                         == "Start" then
-
 
                         state.RevolverReloading =
                             true
@@ -3260,34 +2754,26 @@ return function(context)
             end
         end
 
-
-        ------------------------------------------------
+        ----------------------------------------------------------------
         -- SILENT AIM
-        ------------------------------------------------
+        ----------------------------------------------------------------
 
         if state.SilentAimEnabled
-
-            and selfObject
-                == Workspace
+            and selfObject == Workspace
 
             and (
-
                 method
                     == "FindPartOnRayWithIgnoreList"
 
                 or method
                     == "findPartOnRayWithIgnoreList"
-
             ) then
-
 
             local ray =
                 args[1]
 
-
             local ignore =
                 args[2]
-
 
             if typeof(ray)
                 == "Ray"
@@ -3295,34 +2781,30 @@ return function(context)
                 and type(ignore)
                     == "table" then
 
-
                 local replacement =
 
-                    selectSilentRay(
-
+                    state.SelectRay(
                         ray,
-
-                        ignore
-
+                        ignore,
+                        args[4]
                     )
-
 
                 if typeof(replacement)
                     == "Ray" then
 
-
                     args[1] =
                         replacement
-
                 end
             end
         end
     end
 
-
     state.HandleNamecall =
         handleNamecall
 
+    ----------------------------------------------------------------
+    -- INSTALL ROUTER ONCE
+    ----------------------------------------------------------------
 
     local function installRouter()
 
@@ -3331,10 +2813,8 @@ return function(context)
             router.Owner =
                 state
 
-
             return true
         end
-
 
         if type(hookmetamethod)
             ~= "function"
@@ -3345,26 +2825,20 @@ return function(context)
             or type(setnamecallmethod)
                 ~= "function" then
 
-
             state.LastError =
 
                 "Requires hookmetamethod, getnamecallmethod and setnamecallmethod"
 
-
             return false
         end
-
 
         local getMethod =
             getnamecallmethod
 
-
         local setMethod =
             setnamecallmethod
 
-
         local original
-
 
         local function dispatch(
             selfObject,
@@ -3374,16 +2848,13 @@ return function(context)
             local method =
                 getMethod()
 
-
             local owner =
                 router.Owner
-
 
             if not owner
                 or not owner.Alive
                 or type(owner.HandleNamecall)
                     ~= "function" then
-
 
                 return original(
                     selfObject,
@@ -3391,10 +2862,8 @@ return function(context)
                 )
             end
 
-
             local args =
                 table.pack(...)
-
 
             local ok,
                 failure =
@@ -3408,57 +2877,40 @@ return function(context)
                     method,
 
                     args
-
                 )
-
 
             if not ok then
 
-
                 owner.Errors += 1
 
-
                 owner.LastError =
-                    tostring(
-                        failure
-                    )
-
+                    tostring(failure)
             end
 
-
-            ------------------------------------------------
-            -- Raycasts inside selection can change active
-            -- namecall method. Restore it before forwarding.
-            ------------------------------------------------
+            ------------------------------------------------------------
+            -- Raycasts performed by selectors can alter namecall method.
+            ------------------------------------------------------------
 
             setMethod(
                 method
             )
-
 
             return original(
 
                 selfObject,
 
                 table.unpack(
-
                     args,
-
                     1,
-
                     args.n
-
                 )
-
             )
         end
-
 
         local ok,
             result =
 
             pcall(function()
-
 
                 local callback =
 
@@ -3471,7 +2923,6 @@ return function(context)
 
                     or dispatch
 
-
                 return hookmetamethod(
 
                     game,
@@ -3479,55 +2930,41 @@ return function(context)
                     "__namecall",
 
                     callback
-
                 )
             end)
-
 
         if not ok
             or type(result)
                 ~= "function" then
 
-
             state.LastError =
 
-                "KAT hook installation failed: "
-                .. tostring(
-                    result
-                )
-
+                "Hook installation failed: "
+                .. tostring(result)
 
             return false
         end
 
-
         original =
             result
-
-
-        router.Original =
-            result
-
 
         router.Installed =
             true
 
-
         router.Owner =
             state
-
 
         state.LastError =
             nil
 
-
         return true
     end
 
-
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
     -- KNIFE
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
     local function startKnifeCharge()
 
@@ -3541,45 +2978,33 @@ return function(context)
             or state.Weapon.Parent
                 ~= LocalPlayer.Character then
 
-
             return false
         end
-
 
         if state.KnifeCharging
-
             or state.KnifeInputHeld
-
             or state.KnifeReleaseBusy then
-
 
             return false
         end
-
 
         if type(firesignal)
             ~= "function" then
 
-
             return false
         end
-
 
         local epoch =
             state.WeaponEpoch
 
-
         local before =
             state.LastKnifeStartCharge
-
 
         state.KnifeInputHeld =
             true
 
-
         local success =
             pcall(function()
-
 
                 firesignal(
                     Mouse.Button1Down
@@ -3587,69 +3012,52 @@ return function(context)
 
             end)
 
-
         if not success then
-
 
             state.KnifeInputHeld =
                 false
 
-
             return false
         end
-
 
         local started =
             os.clock()
 
-
         repeat
 
-
-            ------------------------------------------------
-            -- Weapon switched.
-            --
-            -- Never release the OLD knife input into the
-            -- NEW revolver.
-            ------------------------------------------------
+            ------------------------------------------------------------
+            -- Weapon switched:
+            -- DON'T release into the new weapon.
+            ------------------------------------------------------------
 
             if state.WeaponEpoch
                 ~= epoch then
 
-
                 state.KnifeInputHeld =
                     false
-
 
                 state.KnifeCharging =
                     false
 
-
                 return false
             end
-
 
             if state.LastKnifeStartCharge
                 > before then
 
-
                 return true
             end
 
-
             RunService.Heartbeat:
                 Wait()
-
 
         until os.clock()
             - started
             >= 0.12
 
-
-        ------------------------------------------------
-        -- Same Knife still equipped:
-        -- safe to release failed charge.
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Only cleanup if the SAME knife is still equipped.
+        ------------------------------------------------------------
 
         if state.WeaponEpoch
             == epoch
@@ -3662,49 +3070,37 @@ return function(context)
             and state.Weapon.Parent
                 == LocalPlayer.Character then
 
-
             pcall(function()
-
 
                 firesignal(
                     Mouse.Button1Up
                 )
 
             end)
-
         end
-
 
         state.KnifeInputHeld =
             false
 
-
         state.KnifeCharging =
             false
 
-
         return false
     end
-
 
     local function knifeReady()
 
         if state.WeaponType
             ~= "Knife" then
 
-
             return false
         end
-
 
         if not state.KnifeCharging
-
             or not state.KnifeInputHeld then
-
 
             return false
         end
-
 
         return (
 
@@ -3714,33 +3110,25 @@ return function(context)
         ) >= Config.KnifeMinimumCharge
     end
 
-
     local function throwKnife()
 
         if state.KnifeReleaseBusy
-
             or not knifeReady() then
-
 
             return false
         end
-
 
         if type(firesignal)
             ~= "function" then
 
-
             return false
         end
-
 
         local epoch =
             state.WeaponEpoch
 
-
         local weapon =
             state.Weapon
-
 
         if state.WeaponType
             ~= "Knife"
@@ -3750,22 +3138,17 @@ return function(context)
             or weapon.Parent
                 ~= LocalPlayer.Character then
 
-
             return false
         end
-
 
         state.KnifeReleaseBusy =
             true
 
-
         state.KnifeInputHeld =
             false
 
-
         local success =
             pcall(function()
-
 
                 firesignal(
                     Mouse.Button1Up
@@ -3773,29 +3156,18 @@ return function(context)
 
             end)
 
-
         if not success then
-
 
             state.KnifeReleaseBusy =
                 false
 
-
             return false
         end
 
-
-        ------------------------------------------------
-        -- Fallback reset in case ChargeRelease isn't
-        -- observed by the router.
-        ------------------------------------------------
-
         task.delay(
-
             Config.KnifeRearmDelay,
 
             function()
-
 
                 if state.WeaponEpoch
                     ~= epoch
@@ -3806,40 +3178,33 @@ return function(context)
                     or state.Weapon
                         ~= weapon then
 
-
                     return
                 end
-
 
                 state.KnifeCharging =
                     false
 
-
                 state.KnifeInputHeld =
                     false
 
-
                 state.KnifeReleaseBusy =
                     false
-
 
                 state.NextKnifeChargeAttempt =
 
                     os.clock()
                     + 0.02
-
             end
-
         )
-
 
         return true
     end
 
-
-    --====================================================
-    -- REVOLVER RELOAD
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
+    -- REVOLVER
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
     local function pressReloadKey()
 
@@ -3849,72 +3214,51 @@ return function(context)
             and type(keyrelease)
                 == "function" then
 
-
             local success =
                 pcall(function()
-
 
                     keypress(
                         0x52
                     )
 
-
                     task.wait(
                         Config.RevolverReloadKeyHold
                     )
 
-
                     keyrelease(
                         0x52
                     )
-
                 end)
-
 
             if success then
                 return true
             end
         end
 
-
         return pcall(function()
-
 
             VirtualInputManager:
             SendKeyEvent(
-
                 true,
-
                 Enum.KeyCode.R,
-
                 false,
-
                 game
-
             )
-
 
             task.wait(
                 Config.RevolverReloadKeyHold
             )
 
-
             VirtualInputManager:
             SendKeyEvent(
-
                 false,
-
                 Enum.KeyCode.R,
-
                 false,
-
                 game
-
             )
 
         end)
     end
-
 
     local function reloadRevolver()
 
@@ -3926,88 +3270,64 @@ return function(context)
             or state.Weapon.Parent
                 ~= LocalPlayer.Character then
 
-
             return false
         end
-
 
         if state.RevolverReloading then
             return false
         end
 
-
         if state.RevolverAmmo ~= nil
-
             and state.RevolverAmmo > 0 then
 
-
             return false
         end
-
 
         if state.RevolverReserve ~= nil
-
             and state.RevolverReserve <= 0 then
-
 
             return false
         end
-
 
         local now =
             os.clock()
 
-
         if now
             - state.LastReloadAttempt
-
             < Config.RevolverReloadRetry then
-
 
             return false
         end
-
 
         state.LastReloadAttempt =
             now
 
-
         state.RevolverReloading =
             true
-
 
         state.RevolverBusy =
             false
 
-
         local epoch =
             state.WeaponEpoch
-
 
         local weapon =
             state.Weapon
 
-
         if not pressReloadKey() then
-
 
             state.RevolverReloading =
                 false
 
-
             return false
         end
 
-
         task.spawn(function()
-
 
             local started =
                 os.clock()
 
-
             repeat
-
 
                 if state.WeaponEpoch
                     ~= epoch
@@ -4018,36 +3338,27 @@ return function(context)
                     or state.WeaponType
                         ~= "Revolver" then
 
-
                     return
                 end
 
-
                 if state.RevolverAmmo ~= nil
-
                     and state.RevolverAmmo > 0 then
-
 
                     state.RevolverReloading =
                         false
 
-
                     state.RevolverBusy =
                         false
-
 
                     return
                 end
 
-
                 RunService.Heartbeat:
                     Wait()
-
 
             until os.clock()
                 - started
                 >= Config.RevolverReloadTimeout
-
 
             if state.WeaponEpoch
                 == epoch
@@ -4058,10 +3369,8 @@ return function(context)
                 and state.WeaponType
                     == "Revolver" then
 
-
                 state.RevolverReloading =
                     false
-
 
                 state.RevolverBusy =
                     false
@@ -4069,10 +3378,8 @@ return function(context)
 
         end)
 
-
         return true
     end
-
 
     local function fireRevolver()
 
@@ -4086,44 +3393,33 @@ return function(context)
             or state.Weapon.Parent
                 ~= LocalPlayer.Character then
 
-
             return false
         end
-
 
         if state.RevolverAmmo ~= nil
-
             and state.RevolverAmmo <= 0 then
-
 
             return false
         end
-
 
         if state.RevolverReloading then
             return false
         end
 
-
         if type(firesignal)
             ~= "function" then
-
 
             return false
         end
 
-
         local epoch =
             state.WeaponEpoch
-
 
         local weapon =
             state.Weapon
 
-
         local success =
             pcall(function()
-
 
                 firesignal(
                     Mouse.Button1Down
@@ -4131,20 +3427,13 @@ return function(context)
 
             end)
 
-
         if not success then
             return false
         end
 
-
         task.wait(
             Config.RevolverPressTime
         )
-
-
-        ------------------------------------------------
-        -- Only release if SAME Revolver is still active.
-        ------------------------------------------------
 
         if state.WeaponEpoch
             == epoch
@@ -4158,9 +3447,7 @@ return function(context)
             and weapon.Parent
                 == LocalPlayer.Character then
 
-
             pcall(function()
-
 
                 firesignal(
                     Mouse.Button1Up
@@ -4168,10 +3455,8 @@ return function(context)
 
             end)
 
-
             if type(mouse1release)
                 == "function" then
-
 
                 pcall(
                     mouse1release
@@ -4179,50 +3464,24 @@ return function(context)
             end
         end
 
-
         return true
     end
 
+    ----------------------------------------------------------------
+    -- FEATURE TOGGLES
+    ----------------------------------------------------------------
 
-    --====================================================
-    -- FEATURE ENABLE CALLBACKS
-    --====================================================
-
-    local function setSilentAimEnabled(
-        value
-    )
+    local function setSilentAimEnabled(value)
 
         if not state.Alive then
             return
         end
 
-
         if value == true then
 
-
-            if installRouter() then
-
-                state.SilentAimEnabled =
-                    true
-
-            else
-
-                state.SilentAimEnabled =
-                    false
-
-
-                Window:Notify({
-
-                    Title = "KAT",
-
-                    Content =
-                        state.LastError
-                        or "Silent aim unavailable",
-
-                    Duration = 5,
-
-                })
-            end
+            state.SilentAimEnabled =
+                installRouter()
+                == true
 
         else
 
@@ -4230,39 +3489,44 @@ return function(context)
                 false
         end
 
-
         if controls.SilentAim
-
             and controls.SilentAim:Get()
                 ~= state.SilentAimEnabled then
-
 
             controls.SilentAim:Set(
                 state.SilentAimEnabled,
                 false
             )
         end
+
+        if value == true
+            and not state.SilentAimEnabled then
+
+            Window:Notify({
+
+                Title = "KAT",
+
+                Content =
+                    state.LastError
+                    or "Silent aim unavailable",
+
+                Duration = 5,
+            })
+        end
     end
 
-
-    local function setTriggerbotEnabled(
-        value
-    )
+    local function setTriggerbotEnabled(value)
 
         if not state.Alive then
             return
         end
 
-
         if value == true then
-
 
             if not installRouter() then
 
-
                 state.TriggerbotEnabled =
                     false
-
 
                 Window:Notify({
 
@@ -4270,43 +3534,34 @@ return function(context)
 
                     Content =
                         state.LastError
-                        or "Triggerbot hook unavailable",
+                        or "Triggerbot unavailable",
 
                     Duration = 5,
-
                 })
 
-
             else
-
 
                 state.TriggerbotEnabled =
                     true
 
-
                 if state.WeaponType
                     == "Knife" then
-
 
                     state.NextKnifeChargeAttempt =
 
                         os.clock()
                         + 0.05
-
                 end
             end
 
         else
 
-
             state.TriggerbotEnabled =
                 false
 
-
-            ------------------------------------------------
-            -- Disable Knife cleanly ONLY if Knife remains
-            -- equipped.
-            ------------------------------------------------
+            ------------------------------------------------------------
+            -- Cleanly release current knife only if knife still equipped.
+            ------------------------------------------------------------
 
             if state.WeaponType
                 == "Knife"
@@ -4321,23 +3576,18 @@ return function(context)
                 and type(firesignal)
                     == "function" then
 
-
                 pcall(function()
-
 
                     firesignal(
                         Mouse.Button1Up
                     )
 
                 end)
-
             end
 
-
-            ------------------------------------------------
-            -- Disable gun input ONLY if Revolver remains
-            -- equipped.
-            ------------------------------------------------
+            ------------------------------------------------------------
+            -- Cleanly release revolver only if revolver still equipped.
+            ------------------------------------------------------------
 
             if state.WeaponType
                 == "Revolver"
@@ -4347,26 +3597,20 @@ return function(context)
                 and state.Weapon.Parent
                     == LocalPlayer.Character then
 
-
                 if type(firesignal)
                     == "function" then
 
-
                     pcall(function()
-
 
                         firesignal(
                             Mouse.Button1Up
                         )
 
                     end)
-
                 end
-
 
                 if type(mouse1release)
                     == "function" then
-
 
                     pcall(
                         mouse1release
@@ -4374,20 +3618,15 @@ return function(context)
                 end
             end
 
-
             resetKnifeState()
-
 
             state.RevolverBusy =
                 false
         end
 
-
         if controls.Triggerbot
-
             and controls.Triggerbot:Get()
                 ~= state.TriggerbotEnabled then
-
 
             controls.Triggerbot:Set(
                 state.TriggerbotEnabled,
@@ -4396,49 +3635,48 @@ return function(context)
         end
     end
 
-
-    --====================================================
-    -- COMBAT UPDATE LOOP
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
+    -- MAIN COMBAT LOOP
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
     table.insert(
-
         state.Connections,
 
         RunService.RenderStepped:
         Connect(function()
 
-
             if not state.Alive then
                 return
             end
 
+            ------------------------------------------------------------
+            -- Always determine weapon first.
+            ------------------------------------------------------------
 
             updateEquippedWeapon()
 
-
-            --================================================
+            ------------------------------------------------------------
+            ------------------------------------------------------------
             -- TRIGGERBOT
-            --================================================
+            ------------------------------------------------------------
+            ------------------------------------------------------------
 
             if state.TriggerbotEnabled
-
                 and not Input:
                     GetFocusedTextBox() then
 
-
-                --============================================
+                --------------------------------------------------------
                 -- KNIFE
-                --============================================
+                --------------------------------------------------------
 
                 if state.WeaponType
                     == "Knife" then
 
-
-                    ------------------------------------------------
-                    -- Knife may automatically charge even when
-                    -- no target is currently visible.
-                    ------------------------------------------------
+                    ----------------------------------------------------
+                    -- Automatically keep knife charged.
+                    ----------------------------------------------------
 
                     if not state.KnifeCharging
 
@@ -4449,301 +3687,312 @@ return function(context)
                         and os.clock()
                             >= state.NextKnifeChargeAttempt then
 
-
                         state.NextKnifeChargeAttempt =
 
                             os.clock()
                             + Config.KnifeRetryDelay
-
 
                         task.spawn(
                             startKnifeCharge
                         )
                     end
 
+                    ----------------------------------------------------
+                    -- Throw only when charged and player under cursor.
+                    ----------------------------------------------------
 
                     if knifeReady() then
 
-
-                        local player,
-                            _,
-                            resolvedMode =
-
-                            getTriggerTarget()
-
+                        local player =
+                            getPlayerUnderCursor()
 
                         if player
-
                             and validPlayer(
                                 player
                             ) then
 
-
-                            ------------------------------------------------
-                            -- Verify SAME target-part variation before
-                            -- releasing knife.
-                            ------------------------------------------------
-
-                            local verify =
-
-                                getTriggerTarget(
-                                    resolvedMode
+                            local resolvedMode =
+                                resolveTargetMode(
+                                    state.TriggerbotTarget
                                 )
 
+                            ------------------------------------------------
+                            -- TRIGGERBOT'S OWN WALL CHECK
+                            ------------------------------------------------
 
-                            if verify
-                                == player then
+                            if passesTriggerWallCheck(
+                                player,
+                                resolvedMode
+                            ) then
 
+                                ------------------------------------------------
+                                -- Restore original detector:
+                                -- verification only checks SAME PLAYER remains
+                                -- under cursor.
+                                ------------------------------------------------
 
-                                state.LastTarget =
-                                    player.Name
+                                local verify =
+                                    getPlayerUnderCursor()
 
+                                if verify == player then
 
-                                throwKnife()
+                                    state.LastTarget =
+                                        player.Name
 
+                                    throwKnife()
+                                end
                             end
                         end
                     end
 
+                    --------------------------------------------------------
+                    -- Important:
+                    -- do not run revolver code this frame.
+                    --------------------------------------------------------
 
-                --============================================
+                    return
+                end
+
+                --------------------------------------------------------
                 -- REVOLVER
-                --============================================
+                --------------------------------------------------------
 
-                elseif state.WeaponType
+                if state.WeaponType
                     == "Revolver" then
 
-
-                    ------------------------------------------------
-                    -- Absolutely invalidate stale knife state.
-                    ------------------------------------------------
+                    ----------------------------------------------------
+                    -- Knife state cannot leak into gun mode.
+                    ----------------------------------------------------
 
                     state.KnifeCharging =
                         false
 
-
                     state.KnifeInputHeld =
                         false
-
 
                     state.KnifeReleaseBusy =
                         false
 
+                    ----------------------------------------------------
+                    -- Wait for confirmed equipped revolver.
+                    ----------------------------------------------------
 
-                    if state.RevolverPrimed
+                    if not state.RevolverPrimed then
+                        return
+                    end
 
-                        and state.Weapon
+                    local revolver =
+                        state.Weapon
 
-                        and state.Weapon.Parent
-                            == LocalPlayer.Character
+                    if not revolver
 
-                        and classifyWeapon(
-                            state.Weapon
-                        ) == "Revolver" then
+                        or revolver.Parent
+                            ~= LocalPlayer.Character
 
+                        or classifyWeapon(
+                            revolver
+                        ) ~= "Revolver" then
+
+                        return
+                    end
+
+                    ----------------------------------------------------
+                    -- EMPTY / AUTO RELOAD
+                    ----------------------------------------------------
+
+                    if state.RevolverAmmo ~= nil
+                        and state.RevolverAmmo <= 0 then
+
+                        if (
+                            state.RevolverReserve == nil
+                            or state.RevolverReserve > 0
+                        )
+
+                        and not state.RevolverReloading then
+
+                            task.spawn(
+                                reloadRevolver
+                            )
+                        end
+
+                        return
+                    end
+
+                    if state.RevolverReloading
+                        or state.RevolverBusy then
+
+                        return
+                    end
+
+                    ----------------------------------------------------
+                    -- ORIGINAL WORKING TRIGGER DETECTION:
+                    -- ANY body part underneath real cursor.
+                    ----------------------------------------------------
+
+                    local player =
+                        getPlayerUnderCursor()
+
+                    if not player then
+                        return
+                    end
+
+                    if not validPlayer(
+                        player
+                    ) then
+
+                        return
+                    end
+
+                    local resolvedMode =
+                        resolveTargetMode(
+                            state.TriggerbotTarget
+                        )
+
+                    ----------------------------------------------------
+                    -- TRIGGERBOT WALL CHECK ONLY
+                    ----------------------------------------------------
+
+                    if not passesTriggerWallCheck(
+                        player,
+                        resolvedMode
+                    ) then
+
+                        return
+                    end
+
+                    local now =
+                        os.clock()
+
+                    if now
+                        - state.LastRevolverShot
+                        < Config.RevolverCooldown then
+
+                        return
+                    end
+
+                    ----------------------------------------------------
+                    -- SAME PLAYER verification.
+                    --
+                    -- Do not require exact Head / Torso Mouse.Target.
+                    ----------------------------------------------------
+
+                    if getPlayerUnderCursor()
+                        ~= player then
+
+                        return
+                    end
+
+                    state.LastRevolverShot =
+                        now
+
+                    state.LastTarget =
+                        player.Name
+
+                    state.RevolverBusy =
+                        true
+
+                    local epoch =
+                        state.WeaponEpoch
+
+                    local currentWeapon =
+                        state.Weapon
+
+                    task.spawn(function()
+
+                        if state.WeaponEpoch
+                            ~= epoch
+
+                            or state.WeaponType
+                                ~= "Revolver"
+
+                            or state.Weapon
+                                ~= currentWeapon then
+
+                            return
+                        end
 
                         ------------------------------------------------
-                        -- AUTO RELOAD
+                        -- Empty before task runs.
                         ------------------------------------------------
 
                         if state.RevolverAmmo ~= nil
-
                             and state.RevolverAmmo <= 0 then
 
+                            state.RevolverBusy =
+                                false
 
-                            if (
+                            if not state.RevolverReloading then
 
-                                state.RevolverReserve == nil
+                                reloadRevolver()
+                            end
 
-                                or state.RevolverReserve > 0
+                            return
+                        end
 
-                            )
+                        ------------------------------------------------
+                        -- Final working-style validation
+                        ------------------------------------------------
 
-                            and not state.RevolverReloading then
+                        local finalPlayer =
+                            getPlayerUnderCursor()
 
+                        if state.TriggerbotEnabled
+                            and finalPlayer == player
+                            and validPlayer(player)
+                            and passesTriggerWallCheck(
+                                player,
+                                resolvedMode
+                            ) then
+
+                            fireRevolver()
+                        end
+
+                        ------------------------------------------------
+                        -- Reset same revolver only.
+                        ------------------------------------------------
+
+                        if state.WeaponEpoch
+                            == epoch
+
+                            and state.WeaponType
+                                == "Revolver"
+
+                            and state.Weapon
+                                == currentWeapon then
+
+                            state.RevolverBusy =
+                                false
+
+                            if state.RevolverAmmo ~= nil
+                                and state.RevolverAmmo <= 0
+
+                                and not state.RevolverReloading
+
+                                and (
+                                    state.RevolverReserve == nil
+                                    or state.RevolverReserve > 0
+                                ) then
 
                                 task.spawn(
                                     reloadRevolver
                                 )
                             end
-
-
-                        elseif not state.RevolverReloading
-
-                            and not state.RevolverBusy then
-
-
-                            local player,
-                                _,
-                                resolvedMode =
-
-                                getTriggerTarget()
-
-
-                            if player
-
-                                and validPlayer(
-                                    player
-                                ) then
-
-
-                                local now =
-                                    os.clock()
-
-
-                                if now
-                                    - state.LastRevolverShot
-
-                                    >= Config.RevolverCooldown then
-
-
-                                    local verify =
-
-                                        getTriggerTarget(
-                                            resolvedMode
-                                        )
-
-
-                                    if verify
-                                        == player then
-
-
-                                        state.LastRevolverShot =
-                                            now
-
-
-                                        state.LastTarget =
-                                            player.Name
-
-
-                                        state.RevolverBusy =
-                                            true
-
-
-                                        local epoch =
-                                            state.WeaponEpoch
-
-
-                                        local weapon =
-                                            state.Weapon
-
-
-                                        task.spawn(function()
-
-
-                                            if state.WeaponEpoch
-                                                ~= epoch
-
-                                                or state.WeaponType
-                                                    ~= "Revolver"
-
-                                                or state.Weapon
-                                                    ~= weapon then
-
-
-                                                return
-                                            end
-
-
-                                            if state.RevolverAmmo
-                                                ~= nil
-
-                                                and state.RevolverAmmo
-                                                    <= 0 then
-
-
-                                                state.RevolverBusy =
-                                                    false
-
-
-                                                if not state.RevolverReloading then
-
-                                                    reloadRevolver()
-
-                                                end
-
-
-                                                return
-                                            end
-
-
-                                            local finalPlayer =
-
-                                                getTriggerTarget(
-                                                    resolvedMode
-                                                )
-
-
-                                            if state.TriggerbotEnabled
-
-                                                and finalPlayer
-                                                    == player
-
-                                                and validPlayer(
-                                                    player
-                                                ) then
-
-
-                                                fireRevolver()
-
-                                            end
-
-
-                                            if state.WeaponEpoch
-                                                == epoch
-
-                                                and state.WeaponType
-                                                    == "Revolver"
-
-                                                and state.Weapon
-                                                    == weapon then
-
-
-                                                state.RevolverBusy =
-                                                    false
-
-
-                                                if state.RevolverAmmo
-                                                    ~= nil
-
-                                                    and state.RevolverAmmo
-                                                        <= 0
-
-                                                    and not state.RevolverReloading
-
-                                                    and (
-
-                                                        state.RevolverReserve
-                                                            == nil
-
-                                                        or state.RevolverReserve
-                                                            > 0
-
-                                                    ) then
-
-
-                                                    task.spawn(
-                                                        reloadRevolver
-                                                    )
-                                                end
-                                            end
-
-                                        end)
-                                    end
-                                end
-                            end
                         end
-                    end
+
+                    end)
+
+                    return
                 end
             end
 
-
-            --================================================
+            ------------------------------------------------------------
+            ------------------------------------------------------------
             -- AIMBOT
             --
-            -- Toggle = arms the feature.
-            -- Right Mouse Button MUST be held to aim.
-            --================================================
+            -- Toggle only ARMS it.
+            -- RMB MUST currently be held.
+            ------------------------------------------------------------
+            ------------------------------------------------------------
 
             if state.AimbotEnabled
 
@@ -4755,119 +4004,90 @@ return function(context)
                         Enum.UserInputType.MouseButton2
                     ) then
 
-
                 local camera =
                     Workspace.CurrentCamera
 
+                if not camera then
+                    return
+                end
 
-                if camera then
+                local player,
+                    part =
 
+                    getClosestAimbotTarget()
 
-                    local player,
-                        part =
+                if not player
+                    or not part
 
-                        getClosestTarget(
+                    or not validPlayer(
+                        player
+                    ) then
 
-                            state.AimbotFOV,
+                    return
+                end
 
-                            "Head"
+                state.LastTarget =
+                    player.Name
 
+                local point =
+                    camera:
+                    WorldToViewportPoint(
+                        part.Position
+                    )
+
+                local cursor =
+                    Input:
+                    GetMouseLocation()
+
+                local dx =
+                    point.X
+                    - cursor.X
+
+                local dy =
+                    point.Y
+                    - cursor.Y
+
+                if type(mousemoverel)
+                    == "function" then
+
+                    pcall(function()
+
+                        mousemoverel(
+
+                            dx
+                            * state.AimbotSmoothness,
+
+                            dy
+                            * state.AimbotSmoothness
                         )
 
+                    end)
 
-                    if player
-                        and part
+                else
 
-                        and validPlayer(
-                            player
-                        ) then
+                    local desired =
+                        CFrame.lookAt(
+                            camera.CFrame.Position,
+                            part.Position
+                        )
 
-
-                        state.LastTarget =
-                            player.Name
-
-
-                        local point =
-
-                            camera:
-                            WorldToViewportPoint(
-                                part.Position
-                            )
-
-
-                        local mousePosition =
-                            Input:
-                            GetMouseLocation()
-
-
-                        local dx =
-                            point.X
-                            - mousePosition.X
-
-
-                        local dy =
-                            point.Y
-                            - mousePosition.Y
-
-
-                        if type(mousemoverel)
-                            == "function" then
-
-
-                            pcall(function()
-
-
-                                mousemoverel(
-
-                                    dx
-                                    * state.AimbotSmoothness,
-
-                                    dy
-                                    * state.AimbotSmoothness
-
-                                )
-
-                            end)
-
-
-                        else
-
-
-                            local desired =
-
-                                CFrame.lookAt(
-
-                                    camera.CFrame.Position,
-
-                                    part.Position
-
-                                )
-
-
-                            camera.CFrame =
-
-                                camera.CFrame:
-                                Lerp(
-
-                                    desired,
-
-                                    state.AimbotSmoothness
-
-                                )
-
-                        end
-                    end
+                    camera.CFrame =
+                        camera.CFrame:
+                        Lerp(
+                            desired,
+                            state.AimbotSmoothness
+                        )
                 end
             end
 
         end)
-
     )
 
-
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
     -- CLEANUP
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
     local function restore()
 
@@ -4875,33 +4095,26 @@ return function(context)
             return
         end
 
-
         state.Alive =
             false
-
 
         state.Ready =
             false
 
-
         state.SilentAimEnabled =
             false
-
 
         state.AimbotEnabled =
             false
 
-
         state.TriggerbotEnabled =
             false
 
-
         disconnectWeaponEvent()
 
-
-        ------------------------------------------------
-        -- SAFE KNIFE RELEASE
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Knife cleanup
+        ------------------------------------------------------------
 
         if state.WeaponType
             == "Knife"
@@ -4916,22 +4129,18 @@ return function(context)
             and type(firesignal)
                 == "function" then
 
-
             pcall(function()
-
 
                 firesignal(
                     Mouse.Button1Up
                 )
 
             end)
-
         end
 
-
-        ------------------------------------------------
-        -- SAFE REVOLVER RELEASE
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Revolver cleanup
+        ------------------------------------------------------------
 
         if state.WeaponType
             == "Revolver"
@@ -4941,13 +4150,10 @@ return function(context)
             and state.Weapon.Parent
                 == LocalPlayer.Character then
 
-
             if type(firesignal)
                 == "function" then
 
-
                 pcall(function()
-
 
                     firesignal(
                         Mouse.Button1Up
@@ -4956,10 +4162,8 @@ return function(context)
                 end)
             end
 
-
             if type(mouse1release)
                 == "function" then
-
 
                 pcall(
                     mouse1release
@@ -4967,29 +4171,25 @@ return function(context)
             end
         end
 
-
-        ------------------------------------------------
-        -- ROUTER
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Router
+        ------------------------------------------------------------
 
         if router.Owner
             == state then
-
 
             router.Owner =
                 nil
         end
 
-
-        ------------------------------------------------
-        -- CONNECTIONS
-        ------------------------------------------------
+        ------------------------------------------------------------
+        -- Global connections
+        ------------------------------------------------------------
 
         for _, connection
             in ipairs(
                 state.Connections
             ) do
-
 
             pcall(function()
 
@@ -4997,75 +4197,67 @@ return function(context)
                     Disconnect()
 
             end)
-
         end
-
 
         state.Connections =
             {}
 
+        ------------------------------------------------------------
+        -- Per player connections
+        ------------------------------------------------------------
 
         for player
             in pairs(
                 state.PlayerConnections
             ) do
 
-
             disconnectPlayer(
                 player
             )
-
         end
-
 
         state.PlayerConnections =
             {}
 
-
-        ------------------------------------------------
+        ------------------------------------------------------------
         -- ESP
-        ------------------------------------------------
+        ------------------------------------------------------------
 
-        local playersToRemove =
+        local removePlayers =
             {}
-
 
         for player
             in pairs(
                 state.ESPAttachments
             ) do
 
-
             table.insert(
-                playersToRemove,
+                removePlayers,
                 player
             )
         end
-
 
         for _, player
             in ipairs(
-                playersToRemove
+                removePlayers
             ) do
 
-
-            removeEsp(
+            removeESPAttachment(
                 player
             )
         end
-
 
         state.ESPAttachments =
             {}
 
+        state.SelectRay =
+            nil
 
         state.HandleNamecall =
             nil
 
-
         if rawget(_G, KEY)
             == state then
-
 
             rawset(
                 _G,
@@ -5075,10 +4267,8 @@ return function(context)
         end
     end
 
-
     state.Restore =
         restore
-
 
     rawset(
         _G,
@@ -5086,21 +4276,24 @@ return function(context)
         state
     )
 
-
     Window:AddCleanup(
         restore
     )
 
-
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
     -- UI
-    --====================================================
+    ----------------------------------------------------------------
+    ----------------------------------------------------------------
 
     local ok,
         failure =
 
         pcall(function()
 
+            ----------------------------------------------------------------
+            -- MAIN GAME TAB
+            ----------------------------------------------------------------
 
             local tab =
                 Window:
@@ -5109,13 +4302,11 @@ return function(context)
                     "kat"
                 )
 
-
-            --================================================
+            ----------------------------------------------------------------
             -- SILENT AIM
-            --================================================
+            ----------------------------------------------------------------
 
             local silent =
-
                 tab:
                 CreateSection({
 
@@ -5127,9 +4318,7 @@ return function(context)
 
                     Side =
                         "Left",
-
                 })
-
 
             controls.SilentAim =
 
@@ -5147,9 +4336,7 @@ return function(context)
 
                     Callback =
                         setSilentAimEnabled,
-
                 })
-
 
             controls.SilentTarget =
 
@@ -5174,22 +4361,17 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
-                                state.SilentAimTargetMode =
-
-                                    normalizeMode(
+                                state.SilentAimTarget =
+                                    normalizeTarget(
                                         value
                                     )
                             end
-
                         end,
-
                 })
 
-
-            controls.SilentChance =
+            controls.SilentHitChance =
 
                 silent:
                 CreateSlider({
@@ -5198,7 +4380,7 @@ return function(context)
                         "Hit Chance",
 
                     Flag =
-                        "KAT_SilentChance",
+                        "KAT_SilentHitChance",
 
                     Range = {
                         0,
@@ -5217,28 +4399,19 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
                                 state.SilentAimHitChance =
 
                                     math.clamp(
-
-                                        tonumber(
-                                            value
-                                        ) or 100,
-
+                                        tonumber(value)
+                                            or 100,
                                         0,
-
                                         100
-
                                     )
                             end
-
                         end,
-
                 })
-
 
             controls.WholeScreen =
 
@@ -5249,7 +4422,7 @@ return function(context)
                         "Whole Screen",
 
                     Flag =
-                        "KAT_WholeScreen",
+                        "KAT_SilentWholeScreen",
 
                     CurrentValue =
                         true,
@@ -5257,20 +4430,15 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
                                 state.SilentAimWholeScreen =
                                     value == true
-
                             end
-
                         end,
-
                 })
 
-
-            controls.Radius =
+            controls.SilentRadius =
 
                 silent:
                 CreateSlider({
@@ -5279,7 +4447,7 @@ return function(context)
                         "Radius",
 
                     Info =
-                        "Used when Whole Screen is disabled",
+                        "Used while Whole Screen is disabled",
 
                     Flag =
                         "KAT_SilentRadius",
@@ -5301,30 +4469,21 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
                                 state.SilentAimRadius =
 
                                     math.clamp(
-
-                                        tonumber(
-                                            value
-                                        ) or 175,
-
+                                        tonumber(value)
+                                            or 175,
                                         25,
-
                                         500
-
                                     )
                             end
-
                         end,
-
                 })
 
-
-            controls.WallCheck =
+            controls.SilentWallCheck =
 
                 silent:
                 CreateToggle({
@@ -5332,8 +4491,11 @@ return function(context)
                     Name =
                         "Wall Check",
 
+                    Info =
+                        "Only affects Silent Aim",
+
                     Flag =
-                        "KAT_WallCheck",
+                        "KAT_SilentWallCheck",
 
                     CurrentValue =
                         true,
@@ -5341,25 +4503,19 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
-                                state.WallCheck =
+                                state.SilentAimWallCheck =
                                     value == true
-
                             end
-
                         end,
-
                 })
 
-
-            --================================================
+            ----------------------------------------------------------------
             -- TRIGGERBOT
-            --================================================
+            ----------------------------------------------------------------
 
             local trigger =
-
                 tab:
                 CreateSection({
 
@@ -5371,9 +4527,7 @@ return function(context)
 
                     Side =
                         "Left",
-
                 })
-
 
             controls.Triggerbot =
 
@@ -5391,9 +4545,7 @@ return function(context)
 
                     Callback =
                         setTriggerbotEnabled,
-
                 })
-
 
             controls.TriggerTarget =
 
@@ -5402,6 +4554,9 @@ return function(context)
 
                     Name =
                         "Target Variation",
+
+                    Info =
+                        "Used as trigger LOS/body reference; cursor may touch any player body part.",
 
                     Flag =
                         "KAT_TriggerTarget",
@@ -5418,39 +4573,59 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
-                                state.TriggerTargetMode =
-
-                                    normalizeMode(
+                                state.TriggerbotTarget =
+                                    normalizeTarget(
                                         value
                                     )
                             end
-
                         end,
-
                 })
 
+            controls.TriggerWallCheck =
+
+                trigger:
+                CreateToggle({
+
+                    Name =
+                        "Wall Check",
+
+                    Info =
+                        "Only affects Triggerbot",
+
+                    Flag =
+                        "KAT_TriggerWallCheck",
+
+                    CurrentValue =
+                        true,
+
+                    Callback =
+                        function(value)
+
+                            if state.Alive then
+
+                                state.TriggerbotWallCheck =
+                                    value == true
+                            end
+                        end,
+                })
 
             trigger:
             CreateParagraph({
 
                 Title =
-                    "Weapon Handling",
+                    "Weapon Automation",
 
                 Content =
-                    "Revolver fires automatically when your cursor is over the selected body region and reloads at 0 ammo.\nKnife automatically charges while equipped, throws when the selected region is detected, then immediately begins charging the next throw.",
-
+                    "Revolver: fires when your cursor is over any living player and automatically reloads.\nKnife: automatically charges, throws when a living player is detected, then begins charging again.",
             })
 
-
-            --================================================
+            ----------------------------------------------------------------
             -- AIMBOT
-            --================================================
+            ----------------------------------------------------------------
 
             local aimbot =
-
                 tab:
                 CreateSection({
 
@@ -5462,9 +4637,7 @@ return function(context)
 
                     Side =
                         "Right",
-
                 })
-
 
             controls.Aimbot =
 
@@ -5483,30 +4656,23 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
                                 state.AimbotEnabled =
                                     value == true
-
                             end
-
                         end,
-
                 })
-
 
             aimbot:
             CreateParagraph({
 
                 Title =
-                    "Activation",
+                    "Hold Activation",
 
                 Content =
-                    "Aimbot only engages while Right Mouse Button is held. Enabling the toggle only arms the feature.",
-
+                    "Aimbot is only active while Right Mouse Button is held. The toggle only arms/disarms it.",
             })
-
 
             controls.AimbotFOV =
 
@@ -5514,7 +4680,7 @@ return function(context)
                 CreateSlider({
 
                     Name =
-                        "Aimbot FOV",
+                        "FOV",
 
                     Flag =
                         "KAT_AimbotFOV",
@@ -5536,28 +4702,19 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
                                 state.AimbotFOV =
 
                                     math.clamp(
-
-                                        tonumber(
-                                            value
-                                        ) or 300,
-
+                                        tonumber(value)
+                                            or 300,
                                         25,
-
                                         600
-
                                     )
                             end
-
                         end,
-
                 })
-
 
             controls.AimbotSmoothness =
 
@@ -5565,10 +4722,10 @@ return function(context)
                 CreateSlider({
 
                     Name =
-                        "Aimbot Smoothness",
+                        "Smoothness",
 
                     Flag =
-                        "KAT_AimbotSmooth",
+                        "KAT_AimbotSmoothness",
 
                     Range = {
                         0.05,
@@ -5584,100 +4741,33 @@ return function(context)
                     Callback =
                         function(value)
 
-
                             if state.Alive then
 
                                 state.AimbotSmoothness =
 
                                     math.clamp(
-
-                                        tonumber(
-                                            value
-                                        ) or 0.28,
-
+                                        tonumber(value)
+                                            or 0.28,
                                         0.05,
-
                                         1
-
                                     )
                             end
-
                         end,
-
                 })
 
+            controls.AimbotWallCheck =
 
-            --================================================
-            -- ESP
-            --================================================
-
-            local esp =
-
-                tab:
-                CreateSection({
-
-                    Name =
-                        "ESP",
-
-                    Icon =
-                        "esp",
-
-                    Side =
-                        "Right",
-
-                })
-
-
-            controls.ESP =
-
-                esp:
+                aimbot:
                 CreateToggle({
 
                     Name =
-                        "Player ESP",
+                        "Wall Check",
+
+                    Info =
+                        "Only affects Aimbot",
 
                     Flag =
-                        "KAT_ESP",
-
-                    CurrentValue =
-                        false,
-
-                    Callback =
-                        function(value)
-
-
-                            state.ESPEnabled =
-                                value == true
-
-
-                            for _,
-                                attachment
-
-                                in pairs(
-                                    state.ESPAttachments
-                                ) do
-
-
-                                applyEspVisibility(
-                                    attachment
-                                )
-                            end
-
-                        end,
-
-                })
-
-
-            controls.ESPNames =
-
-                esp:
-                CreateToggle({
-
-                    Name =
-                        "Names",
-
-                    Flag =
-                        "KAT_ESPNames",
+                        "KAT_AimbotWallCheck",
 
                     CurrentValue =
                         true,
@@ -5685,174 +4775,55 @@ return function(context)
                     Callback =
                         function(value)
 
+                            if state.Alive then
 
-                            state.ESPNames =
-                                value == true
-
-
-                            for _,
-                                attachment
-
-                                in pairs(
-                                    state.ESPAttachments
-                                ) do
-
-
-                                applyEspVisibility(
-                                    attachment
-                                )
+                                state.AimbotWallCheck =
+                                    value == true
                             end
-
                         end,
-
                 })
 
-
-            controls.ESPDistance =
-
-                esp:
-                CreateToggle({
-
-                    Name =
-                        "Distance",
-
-                    Flag =
-                        "KAT_ESPDistance",
-
-                    CurrentValue =
-                        true,
-
-                    Callback =
-                        function(value)
-
-
-                            state.ESPDistance =
-                                value == true
-
-
-                            for _,
-                                attachment
-
-                                in pairs(
-                                    state.ESPAttachments
-                                ) do
-
-
-                                applyEspVisibility(
-                                    attachment
-                                )
-                            end
-
-                        end,
-
-                })
-
-
-            controls.ESPHealth =
-
-                esp:
-                CreateToggle({
-
-                    Name =
-                        "Health",
-
-                    Flag =
-                        "KAT_ESPHealth",
-
-                    CurrentValue =
-                        true,
-
-                    Callback =
-                        function(value)
-
-
-                            state.ESPHealth =
-                                value == true
-
-
-                            for _,
-                                attachment
-
-                                in pairs(
-                                    state.ESPAttachments
-                                ) do
-
-
-                                applyEspVisibility(
-                                    attachment
-                                )
-                            end
-
-                        end,
-
-                })
-
-
-            esp:
-            CreateParagraph({
-
-                Title =
-                    "Threat Colour",
-
-                Content =
-                    "Red = no clear line of sight to you.\nGreen = that player currently has a clear world-geometry line of sight to your head.",
-
-            })
-
-
-            --================================================
-            -- STATUS
-            --================================================
+            ----------------------------------------------------------------
+            -- DIAGNOSTICS
+            ----------------------------------------------------------------
 
             local diagnostics =
-
                 tab:
                 CreateSection({
 
                     Name =
-                        "KAT Status",
+                        "Status",
 
                     Icon =
                         "terminal",
 
                     Side =
                         "Right",
-
                 })
 
-
-            local readout =
+            local status =
 
                 diagnostics:
                 CreateParagraph({
 
                     Title =
-                        "Live Status",
+                        "KAT Status",
 
                     Content =
                         "Initializing...",
-
                 })
 
+            local function buildStatus()
 
-            local function statusText()
-
-                local weapon =
+                local weaponText =
                     state.WeaponType
 
+                if state.WeaponType
+                    == "Revolver" then
 
-                local weaponInfo =
-                    weapon
-
-
-                if weapon == "Revolver" then
-
-
-                    weaponInfo =
-
+                    weaponText =
                         string.format(
-
-                            "Revolver | Ammo %s / %s%s",
+                            "Revolver | %s / %s%s",
 
                             tostring(
                                 state.RevolverAmmo
@@ -5867,75 +4838,68 @@ return function(context)
                             state.RevolverReloading
                                 and " | Reloading"
                                 or ""
-
                         )
 
+                elseif state.WeaponType
+                    == "Knife" then
 
-                elseif weapon == "Knife" then
+                    weaponText =
+                        state.KnifeCharging
 
-
-                    weaponInfo =
-
-                        string.format(
-
-                            "Knife | %s | %.2fs",
-
-                            state.KnifeCharging
-                                and "Charging"
-                                or "Ready",
-
-                            state.KnifeCharging
-
-                                and math.max(
-
-                                    0,
-
-                                    os.clock()
-                                    - state.KnifeChargeStarted
-
-                                )
-
-                                or 0
-
+                        and string.format(
+                            "Knife | Charging %.2fs",
+                            math.max(
+                                0,
+                                os.clock()
+                                - state.KnifeChargeStarted
+                            )
                         )
+
+                        or "Knife | Ready"
                 end
 
-
                 return string.format(
+                    "Weapon: %s\nSilent Aim: %s | Wall: %s | %s | %d%%\nAimbot: %s | RMB | Wall: %s\nTriggerbot: %s | Wall: %s | %s\nMatched: %d | Redirected: %d | No Target: %d | Chance Miss: %d\nLast Target: %s\nLast Error: %s",
 
-                    "Weapon: %s\nSilent Aim: %s | %s | %d%%\nTriggerbot: %s | %s\nAimbot: %s | Hold RMB\nESP: %s\nMatched: %d | Redirected: %d | Chance Misses: %d | Errors: %d\nLast Target: %s\nLast Error: %s",
-
-                    weaponInfo,
+                    weaponText,
 
                     state.SilentAimEnabled
                         and "On"
                         or "Off",
 
-                    state.SilentAimTargetMode,
-
-                    state.SilentAimHitChance,
-
-                    state.TriggerbotEnabled
+                    state.SilentAimWallCheck
                         and "On"
                         or "Off",
 
-                    state.TriggerTargetMode,
+                    state.SilentAimTarget,
+
+                    state.SilentAimHitChance,
 
                     state.AimbotEnabled
                         and "Armed"
                         or "Off",
 
-                    state.ESPEnabled
+                    state.AimbotWallCheck
                         and "On"
                         or "Off",
+
+                    state.TriggerbotEnabled
+                        and "On"
+                        or "Off",
+
+                    state.TriggerbotWallCheck
+                        and "On"
+                        or "Off",
+
+                    state.TriggerbotTarget,
 
                     state.Matched,
 
                     state.Redirected,
 
-                    state.MissedChance,
+                    state.NoTarget,
 
-                    state.Errors,
+                    state.ChanceMiss,
 
                     tostring(
                         state.LastTarget
@@ -5946,10 +4910,8 @@ return function(context)
                         state.LastError
                         or "None"
                     )
-
                 )
             end
-
 
             diagnostics:
             CreateButton({
@@ -5960,20 +4922,15 @@ return function(context)
                 Callback =
                     function()
 
-
                         if state.Alive then
 
                             print(
                                 "[Vitality KAT LS]\n"
-                                .. statusText()
+                                .. buildStatus()
                             )
-
                         end
-
                     end,
-
             })
-
 
             diagnostics:
             CreateButton({
@@ -5984,251 +4941,338 @@ return function(context)
                 Callback =
                     function()
 
+                        state.Matched = 0
+                        state.Redirected = 0
+                        state.NoTarget = 0
+                        state.ChanceMiss = 0
+                        state.Errors = 0
 
-                        if not state.Alive then
-                            return
-                        end
-
-
-                        state.Matched =
-                            0
-
-
-                        state.Redirected =
-                            0
-
-
-                        state.MissedChance =
-                            0
-
-
-                        state.Errors =
-                            0
-
-
-                        state.LastError =
-                            nil
-
-
-                        state.LastTarget =
-                            nil
-
+                        state.LastTarget = nil
+                        state.LastError = nil
+                        state.LastRayMag = nil
                     end,
-
             })
 
+            ----------------------------------------------------------------
+            ----------------------------------------------------------------
+            -- KAT-SPECIFIC ESP TAB
+            ----------------------------------------------------------------
+            ----------------------------------------------------------------
 
-            local statusAccumulator =
-                0
+            local espTab =
+                Window:
+                CreateTab(
+                    "KAT ESP",
+                    "esp"
+                )
 
+            local espMain =
+                espTab:
+                CreateSection({
 
-            table.insert(
+                    Name =
+                        "Player ESP",
 
-                state.Connections,
+                    Icon =
+                        "esp",
 
-                RunService.Heartbeat:
-                Connect(function(dt)
+                    Side =
+                        "Left",
+                })
 
+            controls.ESP =
 
-                    if not state.Alive then
-                        return
-                    end
+                espMain:
+                CreateToggle({
 
+                    Name =
+                        "Enable ESP",
 
-                    statusAccumulator += dt
+                    Flag =
+                        "KAT_ESP",
 
+                    CurrentValue =
+                        false,
 
-                    if statusAccumulator >= 0.5 then
+                    Callback =
+                        function(value)
 
+                            state.ESPEnabled =
+                                value == true
 
-                        statusAccumulator =
-                            0
+                            refreshESPVisibility()
+                        end,
+                })
 
+            controls.ESPNames =
 
-                        readout:Set({
+                espMain:
+                CreateToggle({
 
-                            Content =
-                                statusText(),
+                    Name =
+                        "Names",
 
-                        })
-                    end
+                    Flag =
+                        "KAT_ESPNames",
 
-                end)
+                    CurrentValue =
+                        true,
 
-            )
+                    Callback =
+                        function(value)
 
+                            state.ESPShowNames =
+                                value == true
 
-            --================================================
-            -- APPLY SAVED VALUES
-            --
-            -- Vitality constructors restore saved values but
-            -- don't necessarily invoke callbacks.
-            --================================================
+                            refreshESPVisibility()
+                        end,
+                })
+
+            controls.ESPDistance =
+
+                espMain:
+                CreateToggle({
+
+                    Name =
+                        "Distance",
+
+                    Flag =
+                        "KAT_ESPDistance",
+
+                    CurrentValue =
+                        true,
+
+                    Callback =
+                        function(value)
+
+                            state.ESPShowDistance =
+                                value == true
+
+                            refreshESPVisibility()
+                        end,
+                })
+
+            controls.ESPHealth =
+
+                espMain:
+                CreateToggle({
+
+                    Name =
+                        "Health",
+
+                    Flag =
+                        "KAT_ESPHealth",
+
+                    CurrentValue =
+                        true,
+
+                    Callback =
+                        function(value)
+
+                            state.ESPShowHealth =
+                                value == true
+
+                            refreshESPVisibility()
+                        end,
+                })
+
+            local espThreat =
+                espTab:
+                CreateSection({
+
+                    Name =
+                        "Threat Indicator",
+
+                    Icon =
+                        "esp",
+
+                    Side =
+                        "Right",
+                })
+
+            espThreat:
+            CreateParagraph({
+
+                Title =
+                    "Colour Meaning",
+
+                Content =
+                    "RED — default / no clear line of sight.\nGREEN — the player currently has a clear geometry line of sight to your head.\nBLUE — your own character.",
+            })
+
+            espThreat:
+            CreateParagraph({
+
+                Title =
+                    "KAT ESP",
+
+                Content =
+                    "This tab uses the original KAT-specific Highlight + Billboard ESP implementation rather than the generic hub ESP.",
+            })
+
+            ----------------------------------------------------------------
+            -- RESTORE SAVED CONFIG
+            ----------------------------------------------------------------
+
+            state.SilentAimTarget =
+                normalizeTarget(
+                    controls.SilentTarget:Get()
+                )
+
+            state.SilentAimHitChance =
+
+                math.clamp(
+                    tonumber(
+                        controls.SilentHitChance:Get()
+                    ) or 100,
+                    0,
+                    100
+                )
 
             state.SilentAimWholeScreen =
                 controls.WholeScreen:Get()
                 == true
 
-
             state.SilentAimRadius =
 
                 math.clamp(
-
                     tonumber(
-                        controls.Radius:Get()
+                        controls.SilentRadius:Get()
                     ) or 175,
-
                     25,
-
                     500
-
                 )
 
-
-            state.SilentAimTargetMode =
-
-                normalizeMode(
-                    controls.SilentTarget:Get()
-                )
-
-
-            state.SilentAimHitChance =
-
-                math.clamp(
-
-                    tonumber(
-                        controls.SilentChance:Get()
-                    ) or 100,
-
-                    0,
-
-                    100
-
-                )
-
-
-            state.WallCheck =
-                controls.WallCheck:Get()
+            state.SilentAimWallCheck =
+                controls.SilentWallCheck:Get()
                 == true
 
+            ------------------------------------------------------------
 
-            state.TriggerTargetMode =
-
-                normalizeMode(
+            state.TriggerbotTarget =
+                normalizeTarget(
                     controls.TriggerTarget:Get()
                 )
 
+            state.TriggerbotWallCheck =
+                controls.TriggerWallCheck:Get()
+                == true
+
+            ------------------------------------------------------------
 
             state.AimbotEnabled =
                 controls.Aimbot:Get()
                 == true
 
-
             state.AimbotFOV =
 
                 math.clamp(
-
                     tonumber(
                         controls.AimbotFOV:Get()
                     ) or 300,
-
                     25,
-
                     600
-
                 )
-
 
             state.AimbotSmoothness =
 
                 math.clamp(
-
                     tonumber(
                         controls.AimbotSmoothness:Get()
                     ) or 0.28,
-
                     0.05,
-
                     1
-
                 )
 
+            state.AimbotWallCheck =
+                controls.AimbotWallCheck:Get()
+                == true
+
+            ------------------------------------------------------------
 
             state.ESPEnabled =
                 controls.ESP:Get()
                 == true
 
-
-            state.ESPNames =
+            state.ESPShowNames =
                 controls.ESPNames:Get()
                 == true
 
-
-            state.ESPDistance =
+            state.ESPShowDistance =
                 controls.ESPDistance:Get()
                 == true
 
-
-            state.ESPHealth =
+            state.ESPShowHealth =
                 controls.ESPHealth:Get()
                 == true
 
+            refreshESPVisibility()
 
-            for _,
-                attachment
-
-                in pairs(
-                    state.ESPAttachments
-                ) do
-
-
-                applyEspVisibility(
-                    attachment
-                )
-            end
-
+            ------------------------------------------------------------
+            -- Feature enable state
+            ------------------------------------------------------------
 
             setSilentAimEnabled(
                 controls.SilentAim:Get()
             )
 
-
             setTriggerbotEnabled(
                 controls.Triggerbot:Get()
             )
 
-        end)
+            ----------------------------------------------------------------
+            -- Status updater
+            ----------------------------------------------------------------
 
+            local statusElapsed =
+                0
+
+            table.insert(
+                state.Connections,
+
+                RunService.Heartbeat:
+                Connect(function(dt)
+
+                    if not state.Alive then
+                        return
+                    end
+
+                    statusElapsed += dt
+
+                    if statusElapsed >= 0.5 then
+
+                        statusElapsed = 0
+
+                        status:Set({
+                            Content =
+                                buildStatus(),
+                        })
+                    end
+
+                end)
+            )
+
+        end)
 
     if not ok then
 
-
         restore()
 
-
         error(
-
             "KAT module initialization failed: "
-            .. tostring(
-                failure
-            ),
-
+            .. tostring(failure),
             0
-
         )
     end
 
-
-    --====================================================
+    ----------------------------------------------------------------
     -- INITIAL WEAPON SCAN
-    --====================================================
+    ----------------------------------------------------------------
 
     updateEquippedWeapon()
 
-
     state.Ready =
         true
-
 
     Window:Notify({
 
@@ -6236,13 +5280,11 @@ return function(context)
             "KAT",
 
         Content =
-            "KAT module loaded. Aimbot is hold-RMB only. Knife and Revolver trigger paths are isolated.",
+            "KAT controls loaded. ESP restored to its game-specific tab. Aimbot requires RMB.",
 
         Duration =
             4,
-
     })
-
 
     return true
 end
