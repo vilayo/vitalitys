@@ -2619,7 +2619,7 @@ function Library:_renderBroadcast(data)
     if data.Status and tostring(data.Status) ~= "" then table.insert(detailParts, tostring(data.Status)) end
     if data.Version and tostring(data.Version) ~= "" then table.insert(detailParts, tostring(data.Version)) end
     if data.Footer and tostring(data.Footer) ~= "" then table.insert(detailParts, tostring(data.Footer)) end
-    local detailText = table.concat(detailParts, "  Ã¢â‚¬Â¢  ")
+    local detailText = table.concat(detailParts, "  ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢  ")
     local details = makeText(card, detailText, 10, Theme.Muted, Enum.Font.GothamMedium)
     details.Position = UDim2.fromOffset(18, 114)
     details.Size = UDim2.new(1, -112, 0, 17)
@@ -14048,10 +14048,22 @@ function Library:PromptForAccessKey(settings)
     status.TextWrapped = true
     status.ZIndex = 3
 
-    local verify = create("TextButton", {
+    -- Keep the primary and secondary key actions in their own row so they can
+    -- never overlap. The 12px center gap stays visually balanced at every UI
+    -- scale because the whole card is scaled as one unit.
+    local actionRow = create("Frame", {
         Parent = card,
         Position = UDim2.fromOffset(24, 236),
-        Size = UDim2.new(0.62, -28, 0, 42),
+        Size = UDim2.new(1, -48, 0, 42),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 3,
+    })
+
+    local verify = create("TextButton", {
+        Parent = actionRow,
+        Position = UDim2.fromScale(0, 0),
+        Size = UDim2.new(0.64, -6, 1, 0),
         BackgroundColor3 = Theme.Button,
         BorderSizePixel = 0,
         Text = tostring(settings.VerifyText or "Verify Key"),
@@ -14059,16 +14071,15 @@ function Library:PromptForAccessKey(settings)
         TextSize = 12,
         Font = Enum.Font.GothamSemibold,
         AutoButtonColor = false,
-        ZIndex = 3,
+        ZIndex = 4,
     })
     corner(verify, 8)
     stroke(verify, Theme.ButtonOutline, 1, 0.20)
 
     local getKey = create("TextButton", {
-        Parent = card,
-        AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -24, 0, 236),
-        Size = UDim2.new(0.38, -4, 0, 42),
+        Parent = actionRow,
+        Position = UDim2.new(0.64, 6, 0, 0),
+        Size = UDim2.new(0.36, -6, 1, 0),
         BackgroundColor3 = Theme.Surface3,
         BorderSizePixel = 0,
         Text = tostring(settings.GetKeyText or "Get Key"),
@@ -14076,7 +14087,7 @@ function Library:PromptForAccessKey(settings)
         TextSize = 12,
         Font = Enum.Font.GothamSemibold,
         AutoButtonColor = false,
-        ZIndex = 3,
+        ZIndex = 4,
     })
     corner(getKey, 8)
     local getKeyStroke = stroke(getKey, Theme.AccentVisible, 1, 0.34)
