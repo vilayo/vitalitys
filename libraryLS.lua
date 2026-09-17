@@ -12,7 +12,7 @@ local TextService = game:GetService("TextService")
 local LocalPlayer = Players.LocalPlayer
 
 local Library = {
-    Version = "2.15.1-LS",
+    Version = "2.16.0-LS",
     Flags = {},
     _openPopup = nil,
     _openPopupOwner = nil,
@@ -7737,6 +7737,10 @@ function TabMethods:CreateDropdown(data)
         SearchKeywords = data.SearchKeywords,
         AllowCustom = allowCustom,
         Searchable = searchable,
+        Virtualize = data.Virtualize ~= false and data.Virtualization ~= false,
+        VirtualizeThreshold = math.max(20, math.floor(tonumber(data.VirtualizeThreshold or data.VirtualizationThreshold) or 80)),
+        VirtualizationBuffer = math.clamp(math.floor(tonumber(data.VirtualizationBuffer) or 4), 2, 12),
+        _usingVirtualization = false,
         IsOpen = false,
     }
 
@@ -7908,6 +7912,25 @@ function TabMethods:CreateDropdown(data)
         return object.AllowCustom
     end
 
+    -- Large dropdowns automatically switch to a recycled row pool instead of
+    -- constructing one GuiButton per option. This keeps instance count and
+    -- event connections nearly constant even for very large Fisch item lists.
+    function object:SetVirtualization(enabled, threshold)
+        object.Virtualize = enabled ~= false
+        if threshold ~= nil then
+            object.VirtualizeThreshold = math.max(20, math.floor(tonumber(threshold) or object.VirtualizeThreshold or 80))
+        end
+        if object.IsOpen then
+            object:Close(true)
+            object:Open()
+        end
+        return object.Virtualize, object.VirtualizeThreshold
+    end
+
+    function object:IsVirtualized()
+        return object._usingVirtualization == true
+    end
+
     makeLockable(object, function(locked)
         button.Active = not locked
         button.BackgroundTransparency = locked and 0.25 or 0
@@ -7931,27 +7954,21 @@ function TabMethods:CreateDropdown(data)
         window:_playSound("Open")
 
         local gui = window.Gui
+        local rowHeight = 44
         local searchAreaHeight = object.Searchable and 42 or 0
-        local naturalHeight = (#object.Options * 44) + searchAreaHeight + 10
+        local naturalHeight = (#object.Options * rowHeight) + searchAreaHeight + 10
         local minimumHeight = object.Searchable and 100 or 54
         local maximumHeight = object.Searchable and 310 or 264
         local popupHeight = math.clamp(naturalHeight, minimumHeight, maximumHeight)
         local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
         local popupX = math.clamp(button.AbsolutePosition.X, 10, math.max(10, viewport.X - button.AbsoluteSize.X - 10))
 
-        -- Dropdowns always open directly below their field. The previous behavior
-        -- flipped the popup above the field when vertical room was tight; when there
-        -- was not enough room above either, the viewport clamp could push the popup
-        -- back down on top of the field and intercept clicks meant for the dropdown.
-        -- Keeping the top edge below the field guarantees the anchor remains clickable
-        -- so clicking the dropdown a second time can always close it.
+        -- Always remain below the anchor so the original dropdown field stays
+        -- clickable and can be pressed again to close this popup.
         local popupGap = 3
         local popupY = button.AbsolutePosition.Y + button.AbsoluteSize.Y + popupGap
         local availableBelow = math.max(0, viewport.Y - popupY - 10)
         if availableBelow > 0 then
-            -- Never collapse the popup below its usable minimum. If the dropdown is
-            -- extremely close to the bottom edge, it may extend past the viewport,
-            -- but it will still never cover the dropdown field itself.
             popupHeight = math.max(minimumHeight, math.min(popupHeight, availableBelow))
         end
 
@@ -7969,16 +7986,22 @@ function TabMethods:CreateDropdown(data)
 
         local closing = false
         local keyConnection
+        local scrollConnection
 
         closePopup = function(immediate)
             if closing then return end
             closing = true
             object.IsOpen = false
+            object._usingVirtualization = false
             setChevron(false)
             setThemeRole(buttonStroke, "Color", "Border")
             if keyConnection then
                 keyConnection:Disconnect()
                 keyConnection = nil
+            end
+            if scrollConnection then
+                scrollConnection:Disconnect()
+                scrollConnection = nil
             end
             if not immediate then window:_playSound("Close") end
             if popup.Parent then popup:Destroy() end
@@ -8071,21 +8094,31 @@ function TabMethods:CreateDropdown(data)
         end
 
         local listTop = object.Searchable and 44 or 4
+        local listViewportHeight = math.max(1, popupHeight - listTop - 4)
         local list = create("ScrollingFrame", {
             Parent = popup,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             Position = UDim2.fromOffset(4, listTop),
             Size = UDim2.new(1, -8, 1, -(listTop + 4)),
-            CanvasSize = UDim2.fromOffset(0, #object.Options * 44),
-            ScrollBarThickness = #object.Options * 44 > (popupHeight - listTop) and 3 or 0,
+            CanvasSize = UDim2.fromOffset(0, #object.Options * rowHeight),
+            ScrollBarThickness = #object.Options * rowHeight > listViewportHeight and 3 or 0,
             ScrollBarImageColor3 = Theme.Disabled,
+            ScrollingDirection = Enum.ScrollingDirection.Y,
             ZIndex = 221,
         })
-        create("UIListLayout", {
-            Parent = list,
-            SortOrder = Enum.SortOrder.LayoutOrder,
-        })
+
+        local useVirtualization = object.Virtualize ~= false
+            and #object.Options >= (tonumber(object.VirtualizeThreshold) or 80)
+        object._usingVirtualization = useVirtualization
+
+        local listLayout
+        if not useVirtualization then
+            listLayout = create("UIListLayout", {
+                Parent = list,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+            })
+        end
 
         local emptyLabel = makeText(popup, "No matching options", 12, Theme.Muted, Enum.Font.Gotham, Enum.TextXAlignment.Center)
         emptyLabel.Position = UDim2.fromOffset(8, listTop)
@@ -8094,9 +8127,13 @@ function TabMethods:CreateDropdown(data)
         emptyLabel.TextWrapped = true
         emptyLabel.ZIndex = 221
 
-        local optionRenderers = {}
+        -- Option metadata is cheap and exists for every item. GuiObjects are only
+        -- created for every item on small lists; virtualized lists recycle a pool.
         local optionEntries = {}
+        local filteredEntries = {}
+        local renderedRows = {}
         local firstVisibleEntry
+        local refreshVirtualRows
 
         local function keywordTextFor(option)
             local pieces = {tostring(option)}
@@ -8127,24 +8164,109 @@ function TabMethods:CreateDropdown(data)
         end
 
         for optionIndex, option in ipairs(object.Options) do
+            optionEntries[optionIndex] = {
+                Option = option,
+                SourceIndex = optionIndex,
+                DisplayText = normalized(option),
+                SearchText = keywordTextFor(option),
+            }
+        end
+
+        local function isSelected(option)
+            return multi and contains(object.Value, option) or object.Value == option
+        end
+
+        local function renderRow(rowState)
+            local entry = rowState.Entry
+            if not entry then
+                rowState.Button.Visible = false
+                return
+            end
+
+            local option = entry.Option
+            local selected = isSelected(option)
+            rowState.Button.Visible = rowState.FilterVisible ~= false
+            rowState.Label.Text = tostring(option)
+
+            if rowState.Hovered and not selected then
+                setThemeRole(rowState.Button, "BackgroundColor3", "Surface2")
+                rowState.Button.BackgroundTransparency = 0
+            else
+                setThemeRole(rowState.Button, "BackgroundColor3", selected and "AccentSoft" or "Surface")
+                rowState.Button.BackgroundTransparency = selected and 0.08 or 1
+            end
+
+            if multi then
+                setThemeRole(rowState.Mark, "BackgroundColor3", selected and "AccentVisible" or "Background")
+                setThemeRole(rowState.MarkStroke, "Color", selected and "AccentVisible" or "Border")
+                setIconColor(rowState.Check, "AccentText")
+                rowState.Check.Visible = selected
+            else
+                rowState.SingleCheckHolder.Visible = selected
+            end
+        end
+
+        local function repaintOptions()
+            if useVirtualization and refreshVirtualRows then
+                refreshVirtualRows()
+                return
+            end
+            for _, rowState in ipairs(renderedRows) do
+                renderRow(rowState)
+            end
+        end
+
+        local function activateEntry(entry)
+            if not entry then return end
+            local option = entry.Option
+            window:_playSound("Click")
+
+            if multi then
+                local newValue = copyArray(object.Value)
+                local foundIndex
+                for index, existing in ipairs(newValue) do
+                    if existing == option then
+                        foundIndex = index
+                        break
+                    end
+                end
+
+                if foundIndex then
+                    table.remove(newValue, foundIndex)
+                else
+                    table.insert(newValue, option)
+                end
+
+                object:Set(newValue, true)
+                repaintOptions()
+            else
+                object:Set(option, true)
+                Library:_closePopup()
+            end
+        end
+
+        local function createRow()
             local optionButton = create("TextButton", {
                 Parent = list,
                 BackgroundColor3 = Theme.Surface,
                 BackgroundTransparency = 1,
                 BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 44),
+                Size = UDim2.new(1, 0, 0, rowHeight),
                 Text = "",
                 AutoButtonColor = false,
-                LayoutOrder = optionIndex,
                 ZIndex = 222,
             })
             corner(optionButton, 8)
 
-            local mark
-            local markStroke
-            local check
+            local rowState = {
+                Button = optionButton,
+                Entry = nil,
+                Hovered = false,
+                FilterVisible = true,
+            }
+
             if multi then
-                mark = create("Frame", {
+                rowState.Mark = create("Frame", {
                     Parent = optionButton,
                     BackgroundColor3 = Theme.Background,
                     BorderSizePixel = 0,
@@ -8152,21 +8274,20 @@ function TabMethods:CreateDropdown(data)
                     Size = UDim2.fromOffset(20, 20),
                     ZIndex = 223,
                 })
-                corner(mark, 4)
-                markStroke = stroke(mark, Theme.Border, 1, 0)
-                check = createCheckmark(mark, Theme.AccentText, 224)
-                setIconColor(check, "AccentText")
+                corner(rowState.Mark, 4)
+                rowState.MarkStroke = stroke(rowState.Mark, Theme.Border, 1, 0)
+                rowState.Check = createCheckmark(rowState.Mark, Theme.AccentText, 224)
+                setIconColor(rowState.Check, "AccentText")
             end
 
-            local optLabel = makeText(optionButton, tostring(option), 12, Theme.Text, Enum.Font.Gotham)
-            optLabel.Position = UDim2.fromOffset(multi and 42 or 12, 0)
-            optLabel.Size = UDim2.new(1, -(multi and 48 or 42), 1, 0)
-            optLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            optLabel.ZIndex = 223
+            rowState.Label = makeText(optionButton, "", 12, Theme.Text, Enum.Font.Gotham)
+            rowState.Label.Position = UDim2.fromOffset(multi and 42 or 12, 0)
+            rowState.Label.Size = UDim2.new(1, -(multi and 48 or 42), 1, 0)
+            rowState.Label.TextTruncate = Enum.TextTruncate.AtEnd
+            rowState.Label.ZIndex = 223
 
-            local singleCheckHolder
             if not multi then
-                singleCheckHolder = create("Frame", {
+                rowState.SingleCheckHolder = create("Frame", {
                     Parent = optionButton,
                     BackgroundTransparency = 1,
                     AnchorPoint = Vector2.new(1, 0.5),
@@ -8174,71 +8295,73 @@ function TabMethods:CreateDropdown(data)
                     Size = UDim2.fromOffset(18, 18),
                     ZIndex = 223,
                 })
-                createCheckmark(singleCheckHolder, Theme.AccentVisible, 224)
-                setIconColor(singleCheckHolder, "AccentVisible")
+                createCheckmark(rowState.SingleCheckHolder, Theme.AccentVisible, 224)
+                setIconColor(rowState.SingleCheckHolder, "AccentVisible")
             end
-
-            local function renderOption()
-                local selected = multi and contains(object.Value, option) or object.Value == option
-                setThemeRole(optionButton, "BackgroundColor3", selected and "AccentSoft" or "Surface")
-                optionButton.BackgroundTransparency = selected and 0.08 or 1
-
-                if multi then
-                    setThemeRole(mark, "BackgroundColor3", selected and "AccentVisible" or "Background")
-                    setThemeRole(markStroke, "Color", selected and "AccentVisible" or "Border")
-                    setIconColor(check, "AccentText")
-                    check.Visible = selected
-                else
-                    singleCheckHolder.Visible = selected
-                end
-            end
-
-            optionRenderers[#optionRenderers + 1] = renderOption
-            optionEntries[#optionEntries + 1] = {
-                Option = option,
-                Button = optionButton,
-                DisplayText = normalized(option),
-                SearchText = keywordTextFor(option),
-            }
-            renderOption()
 
             optionButton.MouseEnter:Connect(function()
-                local selected = multi and contains(object.Value, option) or object.Value == option
-                if not selected then
-                    setThemeRole(optionButton, "BackgroundColor3", "Surface2")
-                    optionButton.BackgroundTransparency = 0
-                end
+                rowState.Hovered = true
+                renderRow(rowState)
             end)
 
             optionButton.MouseLeave:Connect(function()
-                renderOption()
+                rowState.Hovered = false
+                renderRow(rowState)
             end)
 
             optionButton.MouseButton1Click:Connect(function()
-                window:_playSound("Click")
-                if multi then
-                    local newValue = copyArray(object.Value)
-                    local foundIndex
-                    for index, existing in ipairs(newValue) do
-                        if existing == option then
-                            foundIndex = index
-                            break
-                        end
-                    end
-
-                    if foundIndex then
-                        table.remove(newValue, foundIndex)
-                    else
-                        table.insert(newValue, option)
-                    end
-
-                    object:Set(newValue, true)
-                    for _, repaint in ipairs(optionRenderers) do repaint() end
-                else
-                    object:Set(option, true)
-                    Library:_closePopup()
-                end
+                activateEntry(rowState.Entry)
             end)
+
+            renderedRows[#renderedRows + 1] = rowState
+            return rowState
+        end
+
+        if useVirtualization then
+            -- Only enough rows for the visible viewport are instantiated. A small
+            -- overscan buffer prevents blank flashes during fast wheel/touch scrolls.
+            local visibleRows = math.max(1, math.ceil(listViewportHeight / rowHeight))
+            local poolSize = math.min(#optionEntries, visibleRows + object.VirtualizationBuffer * 2)
+            for _ = 1, poolSize do
+                createRow()
+            end
+
+            refreshVirtualRows = function()
+                if closing or not list.Parent then return end
+
+                local count = #filteredEntries
+                local buffer = object.VirtualizationBuffer
+                local firstIndex = math.floor(math.max(0, list.CanvasPosition.Y) / rowHeight) + 1 - buffer
+                firstIndex = math.max(1, firstIndex)
+
+                for poolIndex, rowState in ipairs(renderedRows) do
+                    local filteredIndex = firstIndex + poolIndex - 1
+                    local entry = filteredEntries[filteredIndex]
+                    rowState.Entry = entry
+                    rowState.Hovered = false
+                    rowState.FilterVisible = entry ~= nil
+
+                    if entry then
+                        rowState.Button.Position = UDim2.fromOffset(0, (filteredIndex - 1) * rowHeight)
+                        rowState.Button.LayoutOrder = filteredIndex
+                        renderRow(rowState)
+                    else
+                        rowState.Button.Visible = false
+                    end
+                end
+            end
+
+            scrollConnection = list:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+                refreshVirtualRows()
+            end)
+        else
+            for optionIndex, entry in ipairs(optionEntries) do
+                local rowState = createRow()
+                rowState.Entry = entry
+                rowState.Button.LayoutOrder = optionIndex
+                entry.RowState = rowState
+                renderRow(rowState)
+            end
         end
 
         local function matchesQuery(searchText, query)
@@ -8289,17 +8412,16 @@ function TabMethods:CreateDropdown(data)
 
         local function applyFilter()
             local query = normalized(searchBox and searchBox.Text or "")
-            local visibleCount = 0
-            firstVisibleEntry = nil
+            filteredEntries = {}
 
             for _, entry in ipairs(optionEntries) do
-                local visible = matchesQuery(entry.SearchText, query)
-                entry.Button.Visible = visible
-                if visible then
-                    visibleCount += 1
-                    if not firstVisibleEntry then firstVisibleEntry = entry end
+                if matchesQuery(entry.SearchText, query) then
+                    filteredEntries[#filteredEntries + 1] = entry
                 end
             end
+
+            local visibleCount = #filteredEntries
+            firstVisibleEntry = filteredEntries[1]
 
             if clearButton then
                 clearButton.Visible = query ~= ""
@@ -8318,15 +8440,28 @@ function TabMethods:CreateDropdown(data)
                 emptyLabel.Visible = false
             end
 
-            local contentHeight = visibleCount * 44
-            list.CanvasSize = UDim2.fromOffset(0, contentHeight)
-            local availableHeight = math.max(1, list.AbsoluteSize.Y)
-            list.ScrollBarThickness = contentHeight > availableHeight and 3 or 0
-            list.CanvasPosition = Vector2.new(0, 0)
-        end
-
-        local function repaintOptions()
-            for _, repaint in ipairs(optionRenderers) do repaint() end
+            if useVirtualization then
+                local contentHeight = visibleCount * rowHeight
+                list.CanvasSize = UDim2.fromOffset(0, contentHeight)
+                list.ScrollBarThickness = contentHeight > listViewportHeight and 3 or 0
+                list.CanvasPosition = Vector2.new(0, 0)
+                refreshVirtualRows()
+            else
+                local visibleLookup = {}
+                for _, entry in ipairs(filteredEntries) do
+                    visibleLookup[entry] = true
+                end
+                for _, entry in ipairs(optionEntries) do
+                    if entry.RowState then
+                        entry.RowState.FilterVisible = visibleLookup[entry] == true
+                        entry.RowState.Button.Visible = entry.RowState.FilterVisible
+                    end
+                end
+                local contentHeight = visibleCount * rowHeight
+                list.CanvasSize = UDim2.fromOffset(0, contentHeight)
+                list.ScrollBarThickness = contentHeight > listViewportHeight and 3 or 0
+                list.CanvasPosition = Vector2.new(0, 0)
+            end
         end
 
         local function commitSearchValue()
@@ -8413,6 +8548,11 @@ function TabMethods:CreateDropdown(data)
                 keyConnection:Disconnect()
                 keyConnection = nil
             end
+            if scrollConnection then
+                scrollConnection:Disconnect()
+                scrollConnection = nil
+            end
+            object._usingVirtualization = false
             Library:_forgetPopup(popup)
             object.IsOpen = false
             setChevron(false)
