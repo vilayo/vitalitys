@@ -12,7 +12,7 @@ local TextService = game:GetService("TextService")
 local LocalPlayer = Players.LocalPlayer
 
 local Library = {
-    Version = "2.15.0-LS",
+    Version = "2.15.1-LS",
     Flags = {},
     _openPopup = nil,
     _openPopupOwner = nil,
@@ -7938,8 +7938,22 @@ function TabMethods:CreateDropdown(data)
         local popupHeight = math.clamp(naturalHeight, minimumHeight, maximumHeight)
         local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
         local popupX = math.clamp(button.AbsolutePosition.X, 10, math.max(10, viewport.X - button.AbsoluteSize.X - 10))
-        local popupY = button.AbsolutePosition.Y + button.AbsoluteSize.Y + 5
-        if popupY + popupHeight > viewport.Y - 10 then popupY = button.AbsolutePosition.Y - popupHeight - 5 end
+
+        -- Dropdowns always open directly below their field. The previous behavior
+        -- flipped the popup above the field when vertical room was tight; when there
+        -- was not enough room above either, the viewport clamp could push the popup
+        -- back down on top of the field and intercept clicks meant for the dropdown.
+        -- Keeping the top edge below the field guarantees the anchor remains clickable
+        -- so clicking the dropdown a second time can always close it.
+        local popupGap = 3
+        local popupY = button.AbsolutePosition.Y + button.AbsoluteSize.Y + popupGap
+        local availableBelow = math.max(0, viewport.Y - popupY - 10)
+        if availableBelow > 0 then
+            -- Never collapse the popup below its usable minimum. If the dropdown is
+            -- extremely close to the bottom edge, it may extend past the viewport,
+            -- but it will still never cover the dropdown field itself.
+            popupHeight = math.max(minimumHeight, math.min(popupHeight, availableBelow))
+        end
 
         local popup = create("CanvasGroup", {
             Parent = gui,
