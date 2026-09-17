@@ -12,7 +12,7 @@ local TextService = game:GetService("TextService")
 local LocalPlayer = Players.LocalPlayer
 
 local Library = {
-    Version = "2.16.0-LS",
+    Version = "2.17.0-LS",
     Flags = {},
     _openPopup = nil,
     _openPopupOwner = nil,
@@ -7740,6 +7740,10 @@ function TabMethods:CreateDropdown(data)
         Virtualize = data.Virtualize ~= false and data.Virtualization ~= false,
         VirtualizeThreshold = math.max(20, math.floor(tonumber(data.VirtualizeThreshold or data.VirtualizationThreshold) or 80)),
         VirtualizationBuffer = math.clamp(math.floor(tonumber(data.VirtualizationBuffer) or 4), 2, 12),
+        -- Multi-select dropdowns pin selected/enabled options ahead of inactive
+        -- options by default. This makes already-enabled filters easy to find and
+        -- disable again, while preserving each group's original option order.
+        SelectedFirst = multi and data.SelectedFirst ~= false and data.PinSelected ~= false,
         _usingVirtualization = false,
         IsOpen = false,
     }
@@ -7931,6 +7935,19 @@ function TabMethods:CreateDropdown(data)
         return object._usingVirtualization == true
     end
 
+    function object:SetSelectedFirst(enabled)
+        object.SelectedFirst = multi and enabled ~= false
+        if object.IsOpen then
+            object:Close(true)
+            object:Open()
+        end
+        return object.SelectedFirst
+    end
+
+    function object:GetSelectedFirst()
+        return object.SelectedFirst == true
+    end
+
     makeLockable(object, function(locked)
         button.Active = not locked
         button.BackgroundTransparency = locked and 0.25 or 0
@@ -7965,11 +7982,19 @@ function TabMethods:CreateDropdown(data)
 
         -- Always remain below the anchor so the original dropdown field stays
         -- clickable and can be pressed again to close this popup.
-        local popupGap = 3
+        local popupGap = math.max(0, tonumber(data.PopupGap) or 0)
         local popupY = button.AbsolutePosition.Y + button.AbsoluteSize.Y + popupGap
         local availableBelow = math.max(0, viewport.Y - popupY - 10)
         if availableBelow > 0 then
-            popupHeight = math.max(minimumHeight, math.min(popupHeight, availableBelow))
+            -- Never extend the popup below the viewport just to satisfy the normal
+            -- minimum. A short popup is preferable to hiding rows off-screen.
+            popupHeight = math.min(popupHeight, availableBelow)
+            local absoluteMinimum = object.Searchable and 76 or 44
+            if availableBelow >= absoluteMinimum then
+                popupHeight = math.max(absoluteMinimum, popupHeight)
+            else
+                popupHeight = availableBelow
+            end
         end
 
         local popup = create("CanvasGroup", {
@@ -7987,6 +8012,8 @@ function TabMethods:CreateDropdown(data)
         local closing = false
         local keyConnection
         local scrollConnection
+        local virtualSizeConnection
+        local virtualRenderConnection
 
         closePopup = function(immediate)
             if closing then return end
@@ -8002,6 +8029,14 @@ function TabMethods:CreateDropdown(data)
             if scrollConnection then
                 scrollConnection:Disconnect()
                 scrollConnection = nil
+            end
+            if virtualSizeConnection then
+                virtualSizeConnection:Disconnect()
+                virtualSizeConnection = nil
+            end
+            if virtualRenderConnection then
+                virtualRenderConnection:Disconnect()
+                virtualRenderConnection = nil
             end
             if not immediate then window:_playSound("Close") end
             if popup.Parent then popup:Destroy() end
@@ -8134,6 +8169,8 @@ function TabMethods:CreateDropdown(data)
         local renderedRows = {}
         local firstVisibleEntry
         local refreshVirtualRows
+        local ensureVirtualPool
+        local applyFilter
 
         local function keywordTextFor(option)
             local pieces = {tostring(option)}
@@ -8207,6 +8244,14 @@ function TabMethods:CreateDropdown(data)
         end
 
         local function repaintOptions()
+            -- Rebuild the ordered view after multi-select changes so enabled
+            -- options stay pinned at the top. Preserve the user's current scroll
+            -- position so selecting a deep item does not yank them back to row 1.
+            if multi and object.SelectedFirst and type(applyFilter) == "function" then
+                applyFilter(true)
+                return
+            end
+
             if useVirtualization and refreshVirtualRows then
                 refreshVirtualRows()
                 return
@@ -8318,21 +8363,54 @@ function TabMethods:CreateDropdown(data)
         end
 
         if useVirtualization then
-            -- Only enough rows for the visible viewport are instantiated. A small
-            -- overscan buffer prevents blank flashes during fast wheel/touch scrolls.
-            local visibleRows = math.max(1, math.ceil(listViewportHeight / rowHeight))
-            local poolSize = math.min(#optionEntries, visibleRows + object.VirtualizationBuffer * 2)
-            for _ = 1, poolSize do
-                createRow()
+            -- The pool is sized from the *actual* scrolling viewport and can grow
+            -- if responsive scaling changes while the popup is open. Rows are
+            -- positioned absolutely inside the canvas and recycled as the canvas
+            -- moves. This avoids the old edge case where a too-small fixed pool
+            -- could leave gaps or make the tail of a long list appear missing.
+            ensureVirtualPool = function()
+                if closing or not list.Parent then return end
+
+                local actualViewportHeight = list.AbsoluteSize.Y
+                if actualViewportHeight <= 1 then
+                    actualViewportHeight = listViewportHeight
+                end
+
+                local visibleRows = math.max(1, math.ceil(actualViewportHeight / rowHeight))
+                local desiredPoolSize = math.min(
+                    #optionEntries,
+                    visibleRows + object.VirtualizationBuffer * 2 + 2
+                )
+
+                while #renderedRows < desiredPoolSize do
+                    createRow()
+                end
             end
 
             refreshVirtualRows = function()
                 if closing or not list.Parent then return end
 
+                ensureVirtualPool()
+
                 local count = #filteredEntries
+                if count <= 0 then
+                    for _, rowState in ipairs(renderedRows) do
+                        rowState.Entry = nil
+                        rowState.Button.Visible = false
+                    end
+                    return
+                end
+
                 local buffer = object.VirtualizationBuffer
-                local firstIndex = math.floor(math.max(0, list.CanvasPosition.Y) / rowHeight) + 1 - buffer
-                firstIndex = math.max(1, firstIndex)
+                local canvasY = math.max(0, tonumber(list.CanvasPosition.Y) or 0)
+                local firstVisibleIndex = math.floor(canvasY / rowHeight) + 1
+                local firstIndex = math.max(1, firstVisibleIndex - buffer)
+
+                -- Clamp the recycled window against the end of the filtered list.
+                -- This guarantees the final option can always occupy a real row at
+                -- maximum scroll, even after filtering or responsive resize changes.
+                local maxStart = math.max(1, count - #renderedRows + 1)
+                firstIndex = math.min(firstIndex, maxStart)
 
                 for poolIndex, rowState in ipairs(renderedRows) do
                     local filteredIndex = firstIndex + poolIndex - 1
@@ -8351,8 +8429,28 @@ function TabMethods:CreateDropdown(data)
                 end
             end
 
+            ensureVirtualPool()
+
             scrollConnection = list:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
                 refreshVirtualRows()
+            end)
+
+            virtualSizeConnection = list:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+                ensureVirtualPool()
+                refreshVirtualRows()
+            end)
+
+            -- Roblox inertial/touch scrolling can advance CanvasPosition between
+            -- ordinary property callbacks on some clients. This guard only redraws
+            -- when the virtual row window actually changes, keeping it inexpensive.
+            local lastVirtualFirstVisible = -1
+            virtualRenderConnection = RunService.RenderStepped:Connect(function()
+                if closing or not list.Parent then return end
+                local currentFirstVisible = math.floor(math.max(0, list.CanvasPosition.Y) / rowHeight) + 1
+                if currentFirstVisible ~= lastVirtualFirstVisible then
+                    lastVirtualFirstVisible = currentFirstVisible
+                    refreshVirtualRows()
+                end
             end)
         else
             for optionIndex, entry in ipairs(optionEntries) do
@@ -8410,13 +8508,37 @@ function TabMethods:CreateDropdown(data)
             return nil
         end
 
-        local function applyFilter()
+        applyFilter = function(preserveScroll)
             local query = normalized(searchBox and searchBox.Text or "")
+            local previousCanvasY = preserveScroll and list.CanvasPosition.Y or 0
+
             filteredEntries = {}
 
-            for _, entry in ipairs(optionEntries) do
-                if matchesQuery(entry.SearchText, query) then
+            if multi and object.SelectedFirst then
+                local selectedMatches = {}
+                local inactiveMatches = {}
+
+                for _, entry in ipairs(optionEntries) do
+                    if matchesQuery(entry.SearchText, query) then
+                        if isSelected(entry.Option) then
+                            selectedMatches[#selectedMatches + 1] = entry
+                        else
+                            inactiveMatches[#inactiveMatches + 1] = entry
+                        end
+                    end
+                end
+
+                for _, entry in ipairs(selectedMatches) do
                     filteredEntries[#filteredEntries + 1] = entry
+                end
+                for _, entry in ipairs(inactiveMatches) do
+                    filteredEntries[#filteredEntries + 1] = entry
+                end
+            else
+                for _, entry in ipairs(optionEntries) do
+                    if matchesQuery(entry.SearchText, query) then
+                        filteredEntries[#filteredEntries + 1] = entry
+                    end
                 end
             end
 
@@ -8440,27 +8562,40 @@ function TabMethods:CreateDropdown(data)
                 emptyLabel.Visible = false
             end
 
+            local contentHeight = visibleCount * rowHeight
+            list.CanvasSize = UDim2.fromOffset(0, contentHeight)
+
+            local actualViewportHeight = list.AbsoluteSize.Y
+            if actualViewportHeight <= 1 then
+                actualViewportHeight = listViewportHeight
+            end
+
+            list.ScrollBarThickness = contentHeight > actualViewportHeight and 3 or 0
+
+            local maxCanvasY = math.max(0, contentHeight - actualViewportHeight)
+            local targetCanvasY = preserveScroll and math.clamp(previousCanvasY, 0, maxCanvasY) or 0
+            list.CanvasPosition = Vector2.new(0, targetCanvasY)
+
             if useVirtualization then
-                local contentHeight = visibleCount * rowHeight
-                list.CanvasSize = UDim2.fromOffset(0, contentHeight)
-                list.ScrollBarThickness = contentHeight > listViewportHeight and 3 or 0
-                list.CanvasPosition = Vector2.new(0, 0)
+                ensureVirtualPool()
                 refreshVirtualRows()
             else
-                local visibleLookup = {}
-                for _, entry in ipairs(filteredEntries) do
-                    visibleLookup[entry] = true
+                local visibleOrder = {}
+                for order, entry in ipairs(filteredEntries) do
+                    visibleOrder[entry] = order
                 end
+
                 for _, entry in ipairs(optionEntries) do
                     if entry.RowState then
-                        entry.RowState.FilterVisible = visibleLookup[entry] == true
-                        entry.RowState.Button.Visible = entry.RowState.FilterVisible
+                        local order = visibleOrder[entry]
+                        entry.RowState.FilterVisible = order ~= nil
+                        entry.RowState.Button.Visible = order ~= nil
+                        if order then
+                            entry.RowState.Button.LayoutOrder = order
+                            renderRow(entry.RowState)
+                        end
                     end
                 end
-                local contentHeight = visibleCount * rowHeight
-                list.CanvasSize = UDim2.fromOffset(0, contentHeight)
-                list.ScrollBarThickness = contentHeight > listViewportHeight and 3 or 0
-                list.CanvasPosition = Vector2.new(0, 0)
             end
         end
 
@@ -8551,6 +8686,14 @@ function TabMethods:CreateDropdown(data)
             if scrollConnection then
                 scrollConnection:Disconnect()
                 scrollConnection = nil
+            end
+            if virtualSizeConnection then
+                virtualSizeConnection:Disconnect()
+                virtualSizeConnection = nil
+            end
+            if virtualRenderConnection then
+                virtualRenderConnection:Disconnect()
+                virtualRenderConnection = nil
             end
             object._usingVirtualization = false
             Library:_forgetPopup(popup)
