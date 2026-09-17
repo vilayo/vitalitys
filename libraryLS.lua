@@ -13968,7 +13968,7 @@ function Library:PromptForAccessKey(settings)
         Parent = backdrop,
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromOffset(420, 330),
+        Size = UDim2.fromOffset(420, 250),
         BackgroundColor3 = Theme.Surface,
         BorderSizePixel = 0,
         ZIndex = 2,
@@ -13981,7 +13981,7 @@ function Library:PromptForAccessKey(settings)
         local camera = workspace.CurrentCamera
         if not camera then return end
         local viewport = camera.ViewportSize
-        scale.Scale = math.clamp(math.min(viewport.X / 500, viewport.Y / 420), 0.65, 1)
+        scale.Scale = math.clamp(math.min(viewport.X / 500, viewport.Y / 340), 0.65, 1)
     end
     refreshScale()
     local viewportConnection
@@ -14009,22 +14009,9 @@ function Library:PromptForAccessKey(settings)
         ZIndex = 3,
     })
 
-    local title = makeText(card, tostring(settings.Title or "Access Required"), 18, Theme.Text, Enum.Font.GothamSemibold)
-    title.Position = UDim2.fromOffset(24, 70)
-    title.Size = UDim2.new(1, -48, 0, 28)
-    title.ZIndex = 3
-
-    local subtitle = makeText(card,
-        tostring(settings.Subtitle or "Premium users can enter their key. Free users can get a temporary key through ads."),
-        11, Theme.Muted, Enum.Font.Gotham)
-    subtitle.Position = UDim2.fromOffset(24, 99)
-    subtitle.Size = UDim2.new(1, -48, 0, 40)
-    subtitle.TextWrapped = true
-    subtitle.ZIndex = 3
-
     local box = create("TextBox", {
         Parent = card,
-        Position = UDim2.fromOffset(24, 151),
+        Position = UDim2.fromOffset(24, 70),
         Size = UDim2.new(1, -48, 0, 42),
         BackgroundColor3 = Theme.Background,
         BorderSizePixel = 0,
@@ -14043,7 +14030,7 @@ function Library:PromptForAccessKey(settings)
     padding(box, 12, 12, 0, 0)
 
     local status = makeText(card, tostring(settings.InitialMessage or ""), 10, Theme.Muted, Enum.Font.Gotham)
-    status.Position = UDim2.fromOffset(24, 198)
+    status.Position = UDim2.fromOffset(24, 117)
     status.Size = UDim2.new(1, -48, 0, 28)
     status.TextWrapped = true
     status.ZIndex = 3
@@ -14053,7 +14040,7 @@ function Library:PromptForAccessKey(settings)
     -- scale because the whole card is scaled as one unit.
     local actionRow = create("Frame", {
         Parent = card,
-        Position = UDim2.fromOffset(24, 236),
+        Position = UDim2.fromOffset(24, 155),
         Size = UDim2.new(1, -48, 0, 42),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -14095,7 +14082,7 @@ function Library:PromptForAccessKey(settings)
     local footer = makeText(card,
         tostring(settings.Footer or "Valid keys can be remembered and re-checked before each execution."),
         10, Theme.Muted, Enum.Font.Gotham)
-    footer.Position = UDim2.fromOffset(24, 289)
+    footer.Position = UDim2.fromOffset(24, 208)
     footer.Size = UDim2.new(1, -48, 0, 24)
     footer.TextWrapped = true
     footer.ZIndex = 3
